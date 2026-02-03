@@ -1,0 +1,163 @@
+# docker-compose.yml
+# GridBridge UK - Container Orchestration
+#
+# Usage:
+#   docker-compose up                    # Run with defaults
+#   docker-compose run gridbridge --start 2025-01-20 --days 3
+#   docker-compose --profile dev up      # Include dev tools
+
+version: "3.9"
+
+services:
+  # ==========================================================================
+  # Main ingestion service
+  # ==========================================================================
+  gridbridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: gridbridge-uk:latest
+    container_name: gridbridge-ingest
+
+    # Override default date range via environment
+    environment:
+      - GRIDBRIDGE_START_DATE=${GRIDBRIDGE_START_DATE:-2025-01-15}
+      - GRIDBRIDGE_DAYS=${GRIDBRIDGE_DAYS:-1}
+      - GRIDBRIDGE_OUTPUT=/app/out
+      # API keys (optional, for extended access)
+      - ELEXON_API_KEY=${ELEXON_API_KEY:-}
+      - METOFFICE_API_KEY=${METOFFICE_API_KEY:-}
+
+    # Mount output directory for persistence
+    volumes:
+      - ./out:/app/out:rw
+      - ./data:/app/data:ro
+
+    # Resource limits (PyPSA LOPF can be memory-intensive)
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8G
+        reservations:
+          cpus: "1"
+          memory: 2G
+
+    # Use shell form to allow environment variable substitution
+    command: >
+      python examples/ingest_real_data.py
+      --start ${GRIDBRIDGE_START_DATE:-2025-01-15}
+      --days ${GRIDBRIDGE_DAYS:-1}
+      --output /app/out
+
+    # Restart policy for production
+    restart: "no"
+
+    # Network for service communication
+    networks:
+      - gridbridge-net
+
+  # ==========================================================================
+  # Scheduled ingestion (cron-style)
+  # ==========================================================================
+  gridbridge-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: gridbridge-uk:latest
+    container_name: gridbridge-scheduler
+    profiles:
+      - scheduled
+
+    environment:
+      - GRIDBRIDGE_START_DATE=${GRIDBRIDGE_START_DATE:-2025-01-15}
+      - GRIDBRIDGE_DAYS=${GRIDBRIDGE_DAYS:-1}
+
+    volumes:
+      - ./out:/app/out:rw
+      - ./scripts:/app/scripts:ro
+
+    # Run every 6 hours
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          echo "[$(date -Iseconds)] Starting scheduled ingest..."
+          python examples/ingest_real_data.py \
+            --start "$$(date -d 'yesterday' +%Y-%m-%d)" \
+            --days 1 \
+            --output /app/out
+          echo "[$(date -Iseconds)] Sleeping 6 hours..."
+          sleep 21600
+        done
+
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+
+    restart: unless-stopped
+    networks:
+      - gridbridge-net
+
+  # ==========================================================================
+  # Development shell (for debugging)
+  # ==========================================================================
+  gridbridge-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: gridbridge-uk:latest
+    container_name: gridbridge-dev
+    profiles:
+      - dev
+
+    environment:
+      - GRIDBRIDGE_START_DATE=${GRIDBRIDGE_START_DATE:-2025-01-15}
+      - GRIDBRIDGE_DAYS=${GRIDBRIDGE_DAYS:-1}
+
+    volumes:
+      - ./out:/app/out:rw
+      - ./examples:/app/examples:rw
+      - ./scripts:/app/scripts:rw
+      - ./tests:/app/tests:ro
+
+    # Interactive shell
+    entrypoint: ["/bin/bash"]
+    stdin_open: true
+    tty: true
+
+    networks:
+      - gridbridge-net
+
+  # ==========================================================================
+  # Test runner
+  # ==========================================================================
+  gridbridge-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: gridbridge-uk:latest
+    container_name: gridbridge-test
+    profiles:
+      - test
+
+    volumes:
+      - ./out:/app/out:rw
+      - ./tests:/app/tests:ro
+      - ./examples:/app/examples:ro
+
+    entrypoint: ["pytest"]
+    command: ["/app/tests", "-v", "--tb=short", "--cov=examples", "--cov-report=term-missing"]
+
+    networks:
+      - gridbridge-net
+
+networks:
+  gridbridge-net:
+    driver: bridge

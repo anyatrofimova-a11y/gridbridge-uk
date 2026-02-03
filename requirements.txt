@@ -1,0 +1,29 @@
+# requirements.txt
+# GridBridge UK - Python Dependencies
+# Relaxed versions for Python 3.14 compatibility
+
+# Core data processing
+pandas>=2.1.0
+numpy>=1.26.0
+pyarrow>=14.0.0
+
+# HTTP client
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Power systems modelling (core only, skip optional heavy deps)
+# pypsa>=0.26.0  # Install separately if needed
+linopy>=0.3.0
+xarray>=2024.1.0
+netcdf4>=1.6.0
+scipy>=1.11.0
+
+# Solver (HiGHS - open source, no license required)
+highspy>=1.5.0
+
+# Optional: better JSON handling
+orjson>=3.9.0
+
+# Testing and development
+pytest>=7.4.0
+pytest-cov>=4.1.0

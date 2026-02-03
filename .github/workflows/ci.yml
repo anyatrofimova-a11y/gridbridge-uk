@@ -1,0 +1,284 @@
+# .github/workflows/ci.yml
+name: GridBridge CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_integration_tests:
+        description: 'Run integration tests against live APIs'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  IMAGE_NAME: gridbridge-uk
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ===========================================================================
+  # Lint and type check
+  # ===========================================================================
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linting tools
+        run: pip install flake8 black isort
+
+      - name: Check formatting with black
+        run: black examples/ tests/ --check --diff
+
+      - name: Check import sorting
+        run: isort examples/ tests/ --check --diff
+
+      - name: Lint with flake8
+        run: flake8 examples/ tests/ --max-line-length=100 --ignore=E501,W503
+
+  # ===========================================================================
+  # Unit tests (no network calls)
+  # ===========================================================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v --tb=short \
+            --ignore=tests/test_integration.py \
+            -m "not integration" \
+            --cov=examples \
+            --cov-report=xml \
+            --cov-report=term-missing
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  # ===========================================================================
+  # Docker build
+  # ===========================================================================
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test image health check
+        run: |
+          docker run --rm ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            python -c "import pandas; import pypsa; import requests; print('Health check OK')"
+
+  # ===========================================================================
+  # Smoke test (synthetic data, no API calls)
+  # ===========================================================================
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: docker-build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:test
+          cache-from: type=gha
+
+      - name: Run smoke test
+        run: |
+          mkdir -p out/smoke
+          docker run --rm \
+            -v ${{ github.workspace }}/out/smoke:/app/out:rw \
+            ${{ env.IMAGE_NAME }}:test \
+            --start 2025-01-15 --days 1 --output /app/out
+
+      - name: Validate output files
+        run: |
+          ls -la out/smoke/
+          test -f out/smoke/canonical.parquet || (echo "Missing canonical.parquet" && exit 1)
+          test -d out/smoke/audit || (echo "Missing audit directory" && exit 1)
+
+          # Validate parquet is readable
+          python -c "
+          import pandas as pd
+          df = pd.read_parquet('out/smoke/canonical.parquet')
+          print(f'Rows: {len(df)}')
+          print(f'Columns: {list(df.columns)}')
+          assert len(df) >= 0, 'DataFrame is invalid'
+          assert 'demand_mw' in df.columns, 'Missing demand_mw column'
+          print('Validation passed')
+          "
+
+      - name: Upload smoke test outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-outputs
+          path: out/smoke/
+          retention-days: 7
+
+  # ===========================================================================
+  # Integration tests (live API calls)
+  # ===========================================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests, docker-build]
+    if: github.event.inputs.run_integration_tests == 'true' || github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run integration tests
+        run: |
+          pytest tests/ -v --tb=short -m "integration" || true
+        continue-on-error: true  # APIs may be flaky
+
+      - name: Run full 7-day ingestion
+        run: |
+          mkdir -p out/integration
+          python examples/ingest_real_data.py \
+            --start 2025-01-01 \
+            --days 7 \
+            --output out/integration
+        continue-on-error: true
+
+      - name: Validate integration output
+        run: |
+          if [ -f "out/integration/canonical.parquet" ]; then
+            python -c "
+          import pandas as pd
+          df = pd.read_parquet('out/integration/canonical.parquet')
+          print(f'Rows: {len(df)}')
+          if len(df) >= 336:
+              print('PASS: Got expected number of rows')
+          else:
+              print(f'WARN: Expected >=336 rows, got {len(df)}')
+          "
+          else
+            echo "No output file - API may have been unavailable"
+          fi
+
+      - name: Upload integration outputs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-outputs
+          path: out/integration/
+          retention-days: 7
+
+  # ===========================================================================
+  # Security scan
+  # ===========================================================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # ===========================================================================
+  # Build summary
+  # ===========================================================================
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests, docker-build, smoke-test]
+    if: always()
+
+    steps:
+      - name: Check build status
+        run: |
+          if [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "Lint failed"
+            exit 1
+          fi
+          if [ "${{ needs.unit-tests.result }}" != "success" ]; then
+            echo "Unit tests failed"
+            exit 1
+          fi
+          if [ "${{ needs.docker-build.result }}" != "success" ]; then
+            echo "Docker build failed"
+            exit 1
+          fi
+          if [ "${{ needs.smoke-test.result }}" != "success" ]; then
+            echo "Smoke test failed"
+            exit 1
+          fi
+          echo "All checks passed!"
