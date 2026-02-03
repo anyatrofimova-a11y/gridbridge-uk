@@ -681,6 +681,266 @@ async def get_dno_performance():
 
 
 # ============================================================================
+# Mapping Overlay Endpoints (Multi-Source Integration)
+# ============================================================================
+
+# Lazy-load mapping module to avoid import errors if dependencies missing
+_overlay = None
+_aggregator = None
+
+
+def get_overlay():
+    """Get or create the grid overlay instance."""
+    global _overlay
+    if _overlay is None:
+        try:
+            from mapping import GridOverlay
+            _overlay = GridOverlay()
+            _overlay.refresh_all()
+        except ImportError as e:
+            print(f"Mapping module not available: {e}")
+            return None
+    return _overlay
+
+
+def get_aggregator():
+    """Get or create the multi-source aggregator instance."""
+    global _aggregator
+    if _aggregator is None:
+        try:
+            from mapping import MultiSourceAggregator
+            _aggregator = MultiSourceAggregator()
+        except ImportError as e:
+            print(f"Mapping module not available: {e}")
+            return None
+    return _aggregator
+
+
+@app.get("/api/overlay/state")
+async def get_overlay_state():
+    """
+    Get complete overlay state with all layers.
+
+    Returns generators, interconnectors, grid nodes, carbon intensity,
+    CfD projects, and headroom data combined from multiple sources.
+    """
+    overlay = get_overlay()
+    if overlay is None:
+        raise HTTPException(status_code=503, detail="Mapping module not available")
+
+    return overlay.get_state()
+
+
+@app.get("/api/overlay/layer/{layer_type}")
+async def get_overlay_layer(layer_type: str):
+    """
+    Get a specific overlay layer.
+
+    Layer types: generators, interconnectors, grid_nodes, carbon_intensity,
+    cfd_projects, headroom
+    """
+    overlay = get_overlay()
+    if overlay is None:
+        raise HTTPException(status_code=503, detail="Mapping module not available")
+
+    try:
+        from mapping.overlay import LayerType
+        lt = LayerType(layer_type)
+        layer = overlay.refresh_layer(lt)
+        return layer.to_dict()
+    except ValueError:
+        valid = ["generators", "interconnectors", "grid_nodes", "carbon_intensity", "cfd_projects", "headroom"]
+        raise HTTPException(status_code=400, detail=f"Invalid layer type. Valid: {valid}")
+
+
+@app.get("/api/overlay/summary")
+async def get_overlay_summary():
+    """
+    Get summary statistics across all overlay layers.
+
+    Returns totals for generators, capacity, interconnector flows,
+    carbon intensity, CfD projects, and headroom.
+    """
+    overlay = get_overlay()
+    if overlay is None:
+        raise HTTPException(status_code=503, detail="Mapping module not available")
+
+    return overlay.get_summary()
+
+
+@app.get("/api/aggregated/snapshot")
+async def get_aggregated_snapshot():
+    """
+    Get aggregated snapshot from all data sources.
+
+    Combines data from:
+    - Kilowatts Grid (real-time generation)
+    - National Grid Data Portal (demand, embedded gen)
+    - Carbon Intensity API (regional carbon)
+    - CfD Watch (contracts)
+    - Octopy Energy (pricing)
+    - ETS Watch (carbon market)
+    """
+    aggregator = get_aggregator()
+    if aggregator is None:
+        raise HTTPException(status_code=503, detail="Mapping module not available")
+
+    snapshot = aggregator.get_snapshot()
+    return snapshot.to_dict()
+
+
+@app.get("/api/aggregated/timeseries")
+async def get_aggregated_timeseries(
+    hours: int = Query(24, description="Hours of history", ge=1, le=168),
+):
+    """
+    Get aggregated generation time series.
+
+    Returns demand, wind, solar, gas, nuclear, imports over specified hours.
+    """
+    aggregator = get_aggregator()
+    if aggregator is None:
+        raise HTTPException(status_code=503, detail="Mapping module not available")
+
+    df = aggregator.get_generation_timeseries(hours=hours)
+    if df.empty:
+        return {"data": [], "hours": hours}
+
+    df_reset = df.reset_index()
+    df_reset["timestamp"] = df_reset["timestamp"].astype(str)
+    records = df_reset.to_dict(orient="records")
+
+    return {
+        "data": records,
+        "hours": hours,
+        "points": len(records),
+    }
+
+
+@app.get("/api/aggregated/flexibility-opportunities")
+async def get_flexibility_opportunities():
+    """
+    Get current flexibility opportunities based on grid state.
+
+    Returns recommended actions for flexible loads with
+    confidence scores and reasoning.
+    """
+    aggregator = get_aggregator()
+    if aggregator is None:
+        raise HTTPException(status_code=503, detail="Mapping module not available")
+
+    opportunities = aggregator.get_flexibility_opportunities()
+    snapshot = aggregator.get_snapshot()
+
+    return {
+        "opportunities": opportunities,
+        "grid_state": {
+            "carbon_index": snapshot.carbon_index,
+            "carbon_intensity": snapshot.carbon_intensity,
+            "wind_mw": snapshot.generation_by_fuel.get("wind", 0),
+            "total_generation_mw": snapshot.total_generation_mw,
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/aggregated/cfd-analysis")
+async def get_cfd_analysis():
+    """
+    Get CfD contract portfolio analysis.
+
+    Returns breakdown by technology and allocation round,
+    with statistics on strike prices and capacity.
+    """
+    aggregator = get_aggregator()
+    if aggregator is None:
+        raise HTTPException(status_code=503, detail="Mapping module not available")
+
+    return aggregator.get_cfd_analysis()
+
+
+@app.get("/api/aggregated/price-correlation")
+async def get_price_correlation():
+    """
+    Get price correlation analysis.
+
+    Analyzes relationship between carbon intensity,
+    ETS carbon price, and electricity prices.
+    """
+    aggregator = get_aggregator()
+    if aggregator is None:
+        raise HTTPException(status_code=503, detail="Mapping module not available")
+
+    return aggregator.get_price_correlation()
+
+
+@app.get("/api/sources")
+async def list_data_sources():
+    """
+    List all integrated data sources.
+
+    Returns available sources with their status and descriptions.
+    """
+    sources = [
+        {
+            "name": "kilowatts-grid",
+            "description": "Real-time GB generator output with coordinates",
+            "url": "https://github.com/BenjaminWatts/kilowatts-grid",
+            "data_types": ["generators", "interconnectors", "balancing"],
+            "update_frequency": "~1 minute",
+        },
+        {
+            "name": "ng-data-portal",
+            "description": "National Grid ESO historical data streams",
+            "url": "https://github.com/OSUKED/NGDataPortal",
+            "data_types": ["demand", "embedded_generation", "forecasts"],
+            "update_frequency": "~5 minutes",
+        },
+        {
+            "name": "carbon-intensity",
+            "description": "UK National Grid Carbon Intensity API",
+            "url": "https://carbonintensity.org.uk/",
+            "data_types": ["carbon_intensity", "generation_mix", "regional"],
+            "update_frequency": "~30 minutes",
+        },
+        {
+            "name": "cfd-watch",
+            "description": "Contracts for Difference from Low Carbon Contracts",
+            "url": "https://github.com/OSUKED/CfD-Watch",
+            "data_types": ["cfd_contracts", "strike_prices"],
+            "update_frequency": "~daily",
+        },
+        {
+            "name": "octopy-energy",
+            "description": "Octopus Energy tariffs and pricing",
+            "url": "https://github.com/OSUKED/Octopy-Energy",
+            "data_types": ["agile_tariff", "unit_rates"],
+            "update_frequency": "~30 minutes",
+        },
+        {
+            "name": "ets-watch",
+            "description": "EU Emissions Trading Scheme prices",
+            "url": "https://github.com/OSUKED/ETS-Watch",
+            "data_types": ["carbon_price", "market_data"],
+            "update_frequency": "~daily",
+        },
+        {
+            "name": "openenergymonitor",
+            "description": "UK Grid real-time dashboard (Elexon source)",
+            "url": "https://openenergymonitor.org/ukgrid/",
+            "data_types": ["demand", "generation_mix"],
+            "update_frequency": "~5 minutes",
+        },
+    ]
+
+    return {
+        "sources": sources,
+        "total": len(sources),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ============================================================================
 # Run with: uvicorn api.main:app --reload --port 8000
 # ============================================================================
 

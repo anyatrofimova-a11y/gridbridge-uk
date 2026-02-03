@@ -8,6 +8,8 @@ import React, { useEffect, useState } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts'
 import clsx from 'clsx'
+import GridMapOverlay from './GridMapOverlay'
+import GridSimulator from './GridSimulator'
 
 // Mock API helpers (replace with real endpoints)
 const api = {
@@ -47,6 +49,8 @@ function TopNav({ title }) {
           <div className="flex items-center gap-4">
             <nav className="hidden md:flex items-center gap-3 text-sm text-slate-600">
               <Link to="/">Dashboard</Link>
+              <Link to="/simulator">Simulator</Link>
+              <Link to="/map">Grid Map</Link>
               <Link to="/developer">Developer Portal</Link>
               <Link to="/operator">Network Operator</Link>
               <Link to="/regulator">Regulator</Link>
@@ -168,6 +172,19 @@ function Home() {
           </div>
         </section>
       </aside>
+    </div>
+  )
+}
+
+function GridMapPage() {
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold mb-4">Grid Map Overlay</h1>
+      <p className="text-slate-600 mb-6">
+        Multi-source data integration from Kilowatts Grid, National Grid Data Portal,
+        Carbon Intensity API, CfD Watch, Octopy Energy, and ETS Watch.
+      </p>
+      <GridMapOverlay />
     </div>
   )
 }
@@ -428,6 +445,8 @@ export default function GridBridgeDashboard(){
           <main className="flex-1">
             <Routes>
               <Route path="/" element={<Home/>} />
+              <Route path="/simulator" element={<GridSimulator/>} />
+              <Route path="/map" element={<GridMapPage/>} />
               <Route path="/developer" element={<DeveloperPortal/>} />
               <Route path="/operator" element={<OperatorPortal/>} />
               <Route path="/regulator" element={<RegulatorDashboard/>} />
