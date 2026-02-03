@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, useMap, Tooltip } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
+// Leaflet CSS loaded via CDN in index.html
 import {
   Zap, Wind, Sun, Flame, Atom, Leaf, Battery, Droplet, Factory,
   ArrowLeftRight, Activity, TrendingUp, TrendingDown, RefreshCw, Layers,
@@ -548,6 +548,46 @@ const FlexOpportunitiesPanel = ({ opportunities }) => {
 // Main Component
 // =============================================================================
 
+// Default UK GSPs for when API is unavailable
+const DEFAULT_GSPS = [
+  { id: 'didcot', name: 'Didcot 400kV', coords: { lat: 51.62, lng: -1.27 }, voltage_kv: 400, headroom_mw: 120, load_mw: 850 },
+  { id: 'london', name: 'London GSP', coords: { lat: 51.51, lng: -0.13 }, voltage_kv: 400, headroom_mw: 45, load_mw: 2100 },
+  { id: 'manchester', name: 'Manchester GSP', coords: { lat: 53.48, lng: -2.24 }, voltage_kv: 400, headroom_mw: 85, load_mw: 1200 },
+  { id: 'birmingham', name: 'Birmingham GSP', coords: { lat: 52.49, lng: -1.90 }, voltage_kv: 400, headroom_mw: 72, load_mw: 980 },
+  { id: 'edinburgh', name: 'Edinburgh GSP', coords: { lat: 55.95, lng: -3.19 }, voltage_kv: 275, headroom_mw: 95, load_mw: 650 },
+  { id: 'glasgow', name: 'Glasgow GSP', coords: { lat: 55.86, lng: -4.25 }, voltage_kv: 400, headroom_mw: 110, load_mw: 720 },
+  { id: 'cardiff', name: 'Cardiff GSP', coords: { lat: 51.48, lng: -3.18 }, voltage_kv: 275, headroom_mw: 88, load_mw: 420 },
+  { id: 'bristol', name: 'Bristol GSP', coords: { lat: 51.45, lng: -2.58 }, voltage_kv: 275, headroom_mw: 65, load_mw: 580 },
+  { id: 'newcastle', name: 'Newcastle GSP', coords: { lat: 54.98, lng: -1.61 }, voltage_kv: 275, headroom_mw: 92, load_mw: 490 },
+  { id: 'leeds', name: 'Leeds GSP', coords: { lat: 53.80, lng: -1.55 }, voltage_kv: 275, headroom_mw: 78, load_mw: 620 },
+  { id: 'liverpool', name: 'Liverpool GSP', coords: { lat: 53.41, lng: -2.98 }, voltage_kv: 275, headroom_mw: 82, load_mw: 540 },
+  { id: 'sheffield', name: 'Sheffield GSP', coords: { lat: 53.38, lng: -1.47 }, voltage_kv: 275, headroom_mw: 68, load_mw: 480 },
+  { id: 'cambridge', name: 'Cambridge GSP', coords: { lat: 52.21, lng: 0.12 }, voltage_kv: 132, headroom_mw: 105, load_mw: 320 },
+  { id: 'oxford', name: 'Oxford GSP', coords: { lat: 51.75, lng: -1.26 }, voltage_kv: 132, headroom_mw: 98, load_mw: 280 },
+  { id: 'reading', name: 'Reading GSP', coords: { lat: 51.45, lng: -0.97 }, voltage_kv: 275, headroom_mw: 55, load_mw: 410 },
+  { id: 'southampton', name: 'Southampton GSP', coords: { lat: 50.91, lng: -1.40 }, voltage_kv: 275, headroom_mw: 73, load_mw: 380 },
+  { id: 'norwich', name: 'Norwich GSP', coords: { lat: 52.63, lng: 1.30 }, voltage_kv: 132, headroom_mw: 115, load_mw: 260 },
+  { id: 'nottingham', name: 'Nottingham GSP', coords: { lat: 52.95, lng: -1.15 }, voltage_kv: 275, headroom_mw: 62, load_mw: 450 },
+  { id: 'leicester', name: 'Leicester GSP', coords: { lat: 52.64, lng: -1.13 }, voltage_kv: 275, headroom_mw: 58, load_mw: 390 },
+  { id: 'aberdeen', name: 'Aberdeen GSP', coords: { lat: 57.15, lng: -2.09 }, voltage_kv: 275, headroom_mw: 125, load_mw: 280 },
+  { id: 'inverness', name: 'Inverness GSP', coords: { lat: 57.48, lng: -4.22 }, voltage_kv: 132, headroom_mw: 140, load_mw: 180 },
+  { id: 'dundee', name: 'Dundee GSP', coords: { lat: 56.46, lng: -2.97 }, voltage_kv: 132, headroom_mw: 95, load_mw: 220 },
+  { id: 'swansea', name: 'Swansea GSP', coords: { lat: 51.62, lng: -3.94 }, voltage_kv: 275, headroom_mw: 85, load_mw: 290 },
+  { id: 'plymouth', name: 'Plymouth GSP', coords: { lat: 50.38, lng: -4.14 }, voltage_kv: 132, headroom_mw: 92, load_mw: 240 },
+  { id: 'exeter', name: 'Exeter GSP', coords: { lat: 50.72, lng: -3.53 }, voltage_kv: 132, headroom_mw: 102, load_mw: 210 },
+];
+
+const DEFAULT_GENERATORS = [
+  { id: 'drax', name: 'Drax Power Station', fuel_type: 'biomass', coords: { lat: 53.74, lng: -0.99 }, capacity_mw: 2595, output_mw: 1800 },
+  { id: 'sizewell', name: 'Sizewell B', fuel_type: 'nuclear', coords: { lat: 52.21, lng: 1.62 }, capacity_mw: 1198, output_mw: 1150 },
+  { id: 'hinkley', name: 'Hinkley Point B', fuel_type: 'nuclear', coords: { lat: 51.21, lng: -3.13 }, capacity_mw: 965, output_mw: 920 },
+  { id: 'hornsea', name: 'Hornsea Wind Farm', fuel_type: 'wind', coords: { lat: 53.88, lng: 1.80 }, capacity_mw: 1218, output_mw: 850 },
+  { id: 'dogger', name: 'Dogger Bank Wind', fuel_type: 'wind', coords: { lat: 54.75, lng: 2.20 }, capacity_mw: 1200, output_mw: 780 },
+  { id: 'dinorwig', name: 'Dinorwig Hydro', fuel_type: 'hydro', coords: { lat: 53.12, lng: -4.11 }, capacity_mw: 1728, output_mw: 0 },
+  { id: 'ccgt_pembroke', name: 'Pembroke CCGT', fuel_type: 'gas', coords: { lat: 51.68, lng: -4.99 }, capacity_mw: 2180, output_mw: 1450 },
+  { id: 'ccgt_carrington', name: 'Carrington CCGT', fuel_type: 'gas', coords: { lat: 53.43, lng: -2.41 }, capacity_mw: 884, output_mw: 620 },
+];
+
 const GridSimulatorMap = () => {
   const { snapshot, overlay, opportunities, loading, error, lastUpdate, refresh } = useGridData();
   const [selection, setSelection] = useState(null);
@@ -559,10 +599,19 @@ const GridSimulatorMap = () => {
     carbonRegions: true,
   });
 
-  // Extract data from overlay
-  const generators = useMemo(() => overlay?.layers?.generators?.data || [], [overlay]);
+  // Extract data from overlay, with fallbacks
+  const generators = useMemo(() => {
+    const apiData = overlay?.layers?.generators?.data || [];
+    return apiData.length > 0 ? apiData : DEFAULT_GENERATORS;
+  }, [overlay]);
+
   const interconnectors = useMemo(() => overlay?.layers?.interconnectors?.data || [], [overlay]);
-  const gridNodes = useMemo(() => overlay?.layers?.grid_nodes?.data || [], [overlay]);
+
+  const gridNodes = useMemo(() => {
+    const apiData = overlay?.layers?.grid_nodes?.data || [];
+    return apiData.length > 0 ? apiData : DEFAULT_GSPS;
+  }, [overlay]);
+
   const carbonRegions = useMemo(() => overlay?.layers?.carbon_intensity?.data || [], [overlay]);
 
   const toggleLayer = (key) => {
@@ -619,14 +668,13 @@ const GridSimulatorMap = () => {
       )}
 
       {/* Main content */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative" style={{ minHeight: 0 }}>
         {/* Map */}
         <MapContainer
           center={UK_CENTER}
           zoom={6}
-          className="h-full w-full"
           zoomControl={false}
-          style={{ background: '#0f172a' }}
+          style={{ height: '100%', width: '100%', background: '#0f172a' }}
         >
           <FitBounds />
 

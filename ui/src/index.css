@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Leaflet map fixes - CSS loaded via index.html CDN */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.leaflet-control-container {
+  z-index: 1000;
+}
+
 /* Custom styles for GridBridge UI */
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

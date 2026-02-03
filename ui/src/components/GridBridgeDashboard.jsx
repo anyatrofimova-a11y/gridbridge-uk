@@ -436,26 +436,43 @@ function BarRank(){
 // ------------------------
 // Router + App shell
 // ------------------------
+
+// Wrapper to check current route
+function AppContent() {
+  const location = useLocation();
+  const isSimulator = location.pathname === '/simulator';
+
+  // Simulator gets full viewport - no nav/sidebar
+  if (isSimulator) {
+    return <GridSimulatorMap />;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-800">
+      <TopNav />
+      <div className="flex">
+        <Sidebar />
+        <main className="flex-1">
+          <Routes>
+            <Route path="/" element={<Home/>} />
+            <Route path="/map" element={<GridMapPage/>} />
+            <Route path="/developer" element={<DeveloperPortal/>} />
+            <Route path="/operator" element={<OperatorPortal/>} />
+            <Route path="/regulator" element={<RegulatorDashboard/>} />
+            <Route path="*" element={<Home/>} />
+          </Routes>
+        </main>
+      </div>
+    </div>
+  );
+}
+
 export default function GridBridgeDashboard(){
   return (
     <Router>
-      <div className="min-h-screen bg-slate-100 text-slate-800">
-        <TopNav />
-        <div className="flex">
-          <Sidebar />
-          <main className="flex-1">
-            <Routes>
-              <Route path="/" element={<Home/>} />
-              <Route path="/simulator" element={<GridSimulatorMap/>} />
-              <Route path="/map" element={<GridMapPage/>} />
-              <Route path="/developer" element={<DeveloperPortal/>} />
-              <Route path="/operator" element={<OperatorPortal/>} />
-              <Route path="/regulator" element={<RegulatorDashboard/>} />
-              <Route path="*" element={<Home/>} />
-            </Routes>
-          </main>
-        </div>
-      </div>
+      <Routes>
+        <Route path="/*" element={<AppContent />} />
+      </Routes>
     </Router>
   )
 }
