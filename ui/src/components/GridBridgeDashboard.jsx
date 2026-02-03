@@ -10,6 +10,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, 
 import clsx from 'clsx'
 import GridMapOverlay from './GridMapOverlay'
 import GridSimulator from './GridSimulator'
+import GridSimulatorMap from './GridSimulatorMap'
 
 // Mock API helpers (replace with real endpoints)
 const api = {
@@ -445,7 +446,7 @@ export default function GridBridgeDashboard(){
           <main className="flex-1">
             <Routes>
               <Route path="/" element={<Home/>} />
-              <Route path="/simulator" element={<GridSimulator/>} />
+              <Route path="/simulator" element={<GridSimulatorMap/>} />
               <Route path="/map" element={<GridMapPage/>} />
               <Route path="/developer" element={<DeveloperPortal/>} />
               <Route path="/operator" element={<OperatorPortal/>} />
