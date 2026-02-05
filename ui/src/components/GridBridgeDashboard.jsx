@@ -11,6 +11,7 @@ import clsx from 'clsx'
 import GridMapOverlay from './GridMapOverlay'
 import GridSimulator from './GridSimulator'
 import GridSimulatorMap from './GridSimulatorMap'
+import SimpleMap from './SimpleMap'
 
 // Mock API helpers (replace with real endpoints)
 const api = {
@@ -441,10 +442,14 @@ function BarRank(){
 function AppContent() {
   const location = useLocation();
   const isSimulator = location.pathname === '/simulator';
+  const isTestMap = location.pathname === '/test-map';
 
-  // Simulator gets full viewport - no nav/sidebar
+  // Full viewport routes - no nav/sidebar
   if (isSimulator) {
     return <GridSimulatorMap />;
+  }
+  if (isTestMap) {
+    return <SimpleMap />;
   }
 
   return (

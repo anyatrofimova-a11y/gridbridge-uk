@@ -1,22 +1,11 @@
 /**
  * GridBridge UK - Real Map Grid Simulator
- *
- * Interactive Leaflet map with real UK geography showing:
- * - Power generators with animated icons
- * - Grid nodes (GSPs/BSPs) with headroom indicators
- * - Interconnector flows
- * - Carbon intensity overlays
- * - Market intelligence panels
  */
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, useMap, Tooltip } from 'react-leaflet';
-// Leaflet CSS loaded via CDN in index.html
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Tooltip } from 'react-leaflet';
 import {
   Zap, Wind, Sun, Flame, Atom, Leaf, Battery, Droplet, Factory,
-  ArrowLeftRight, Activity, TrendingUp, TrendingDown, RefreshCw, Layers,
-  Eye, EyeOff, Play, Pause, Settings, ChevronDown, ChevronUp, Clock,
-  Target, Wifi, WifiOff, AlertCircle, MapPin,
+  Activity, RefreshCw, Layers, Play, Pause, Clock, MapPin, Wifi, WifiOff,
 } from 'lucide-react';
 
 // =============================================================================
@@ -24,531 +13,20 @@ import {
 // =============================================================================
 
 const UK_CENTER = [54.5, -2.5];
-const UK_BOUNDS = [[49.5, -8], [60, 2]];
 
 const FUEL_CONFIG = {
-  wind: { color: '#10b981', icon: Wind, label: 'Wind' },
-  solar: { color: '#fbbf24', icon: Sun, label: 'Solar' },
-  gas: { color: '#ef4444', icon: Flame, label: 'Gas' },
-  nuclear: { color: '#f59e0b', icon: Atom, label: 'Nuclear' },
-  biomass: { color: '#84cc16', icon: Leaf, label: 'Biomass' },
-  battery: { color: '#8b5cf6', icon: Battery, label: 'Battery' },
-  hydro: { color: '#3b82f6', icon: Droplet, label: 'Hydro' },
-  coal: { color: '#374151', icon: Factory, label: 'Coal' },
-  imports: { color: '#06b6d4', icon: ArrowLeftRight, label: 'Imports' },
-  other: { color: '#6b7280', icon: Zap, label: 'Other' },
+  wind: { color: '#10b981', label: 'Wind' },
+  solar: { color: '#fbbf24', label: 'Solar' },
+  gas: { color: '#ef4444', label: 'Gas' },
+  nuclear: { color: '#f59e0b', label: 'Nuclear' },
+  biomass: { color: '#84cc16', label: 'Biomass' },
+  battery: { color: '#8b5cf6', label: 'Battery' },
+  hydro: { color: '#3b82f6', label: 'Hydro' },
+  coal: { color: '#374151', label: 'Coal' },
+  other: { color: '#6b7280', label: 'Other' },
 };
 
-const CARBON_COLORS = {
-  'very low': '#22c55e',
-  'low': '#84cc16',
-  'moderate': '#f59e0b',
-  'high': '#f97316',
-  'very high': '#ef4444',
-};
-
-// Interconnector endpoints (country coordinates)
-const INTERCONNECTOR_ENDPOINTS = {
-  FR: [49.5, 1.5],
-  BE: [51.2, 3.0],
-  NL: [52.5, 4.5],
-  NO: [58.0, 5.0],
-  DK: [55.5, 8.0],
-  IE: [53.5, -8.5],
-};
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
-
-const formatMW = (mw) => {
-  if (!mw && mw !== 0) return '—';
-  if (Math.abs(mw) >= 1000) return `${(mw / 1000).toFixed(1)} GW`;
-  return `${mw.toFixed(0)} MW`;
-};
-
-// =============================================================================
-// Custom Hooks
-// =============================================================================
-
-const useGridData = (refreshInterval = 60000) => {
-  const [data, setData] = useState({
-    snapshot: null,
-    overlay: null,
-    opportunities: [],
-    loading: true,
-    error: null,
-    lastUpdate: null,
-  });
-
-  const fetchData = useCallback(async () => {
-    try {
-      const [snapshotRes, overlayRes, oppsRes] = await Promise.all([
-        fetch('/api/aggregated/snapshot').then(r => r.ok ? r.json() : null),
-        fetch('/api/overlay/state').then(r => r.ok ? r.json() : null),
-        fetch('/api/aggregated/flexibility-opportunities').then(r => r.ok ? r.json() : null),
-      ]);
-
-      setData({
-        snapshot: snapshotRes,
-        overlay: overlayRes,
-        opportunities: oppsRes?.opportunities || [],
-        loading: false,
-        error: null,
-        lastUpdate: new Date(),
-      });
-    } catch (err) {
-      setData(prev => ({ ...prev, loading: false, error: err.message }));
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, refreshInterval);
-    return () => clearInterval(interval);
-  }, [fetchData, refreshInterval]);
-
-  return { ...data, refresh: fetchData };
-};
-
-// =============================================================================
-// Map Components
-// =============================================================================
-
-// Generator marker on the map
-const GeneratorMarker = ({ generator, onClick }) => {
-  const config = FUEL_CONFIG[generator.fuel_type] || FUEL_CONFIG.other;
-  const capFactor = (generator.output_mw || 0) / (generator.capacity_mw || 100);
-  const radius = Math.max(5, Math.min(20, Math.sqrt(generator.capacity_mw || 50) / 2));
-
-  if (!generator.coords?.lat || !generator.coords?.lng) return null;
-
-  return (
-    <CircleMarker
-      center={[generator.coords.lat, generator.coords.lng]}
-      radius={radius}
-      pathOptions={{
-        color: config.color,
-        fillColor: config.color,
-        fillOpacity: Math.max(0.3, capFactor),
-        weight: 2,
-      }}
-      eventHandlers={{ click: () => onClick?.(generator) }}
-    >
-      <Tooltip direction="top" offset={[0, -10]} opacity={0.9}>
-        <div className="text-xs">
-          <div className="font-bold">{generator.name}</div>
-          <div>{formatMW(generator.output_mw)} / {formatMW(generator.capacity_mw)}</div>
-          <div className="capitalize">{generator.fuel_type}</div>
-        </div>
-      </Tooltip>
-    </CircleMarker>
-  );
-};
-
-// Grid node marker (GSP/BSP)
-const GridNodeMarker = ({ node, onClick }) => {
-  const headroom = node.headroom_mw || 0;
-  let color = '#ef4444'; // Low
-  if (headroom > 100) color = '#22c55e'; // High
-  else if (headroom > 50) color = '#f59e0b'; // Medium
-
-  if (!node.coords?.lat || !node.coords?.lng) return null;
-
-  return (
-    <CircleMarker
-      center={[node.coords.lat, node.coords.lng]}
-      radius={8}
-      pathOptions={{
-        color: '#fff',
-        fillColor: color,
-        fillOpacity: 0.9,
-        weight: 2,
-      }}
-      eventHandlers={{ click: () => onClick?.(node) }}
-    >
-      <Tooltip direction="top" offset={[0, -10]} opacity={0.9}>
-        <div className="text-xs">
-          <div className="font-bold">{node.name}</div>
-          <div>Headroom: {node.headroom_mw} MW</div>
-          <div>Load: {node.load_mw} MW</div>
-          <div>{node.voltage_kv} kV</div>
-        </div>
-      </Tooltip>
-    </CircleMarker>
-  );
-};
-
-// Interconnector line
-const InterconnectorLine = ({ interconnector, onClick }) => {
-  const flow = interconnector.flow_mw || 0;
-  const isImport = flow > 0;
-  const color = isImport ? '#22c55e' : flow < 0 ? '#ef4444' : '#6b7280';
-
-  if (!interconnector.coords?.lat || !interconnector.coords?.lng) return null;
-
-  const ukPoint = [interconnector.coords.lat, interconnector.coords.lng];
-  const foreignPoint = INTERCONNECTOR_ENDPOINTS[interconnector.country_code] || [51, 2];
-
-  return (
-    <>
-      <Polyline
-        positions={[ukPoint, foreignPoint]}
-        pathOptions={{
-          color: color,
-          weight: Math.max(2, Math.abs(flow) / 300),
-          opacity: 0.7,
-          dashArray: isImport ? null : '10, 10',
-        }}
-        eventHandlers={{ click: () => onClick?.(interconnector) }}
-      >
-        <Tooltip>
-          <div className="text-xs">
-            <div className="font-bold">{interconnector.name}</div>
-            <div>{formatMW(Math.abs(flow))} {isImport ? 'Import' : 'Export'}</div>
-            <div>To/From: {interconnector.country_code}</div>
-          </div>
-        </Tooltip>
-      </Polyline>
-      <CircleMarker
-        center={ukPoint}
-        radius={6}
-        pathOptions={{
-          color: '#fff',
-          fillColor: color,
-          fillOpacity: 1,
-          weight: 2,
-        }}
-      />
-    </>
-  );
-};
-
-// Carbon intensity region overlay
-const CarbonRegionMarker = ({ region }) => {
-  const color = CARBON_COLORS[region.index?.toLowerCase()] || '#6b7280';
-
-  if (!region.coords?.lat || !region.coords?.lng) return null;
-
-  return (
-    <CircleMarker
-      center={[region.coords.lat, region.coords.lng]}
-      radius={40}
-      pathOptions={{
-        color: color,
-        fillColor: color,
-        fillOpacity: 0.15,
-        weight: 1,
-      }}
-    >
-      <Tooltip>
-        <div className="text-xs">
-          <div className="font-bold">{region.name}</div>
-          <div>{region.intensity} gCO2/kWh</div>
-          <div className="capitalize">{region.index}</div>
-        </div>
-      </Tooltip>
-    </CircleMarker>
-  );
-};
-
-// Map bounds fitter
-const FitBounds = () => {
-  const map = useMap();
-  useEffect(() => {
-    map.fitBounds(UK_BOUNDS);
-  }, [map]);
-  return null;
-};
-
-// =============================================================================
-// Side Panels
-// =============================================================================
-
-const LiveStatsPanel = ({ snapshot, isConnected }) => {
-  if (!snapshot) return null;
-
-  const genByFuel = snapshot.generation?.by_fuel || {};
-  const totalGen = snapshot.generation?.total_mw || 0;
-
-  return (
-    <div className="bg-slate-800/95 backdrop-blur rounded-lg p-4 space-y-4 shadow-xl">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-white flex items-center gap-2">
-          <Activity size={16} className="text-sky-400" />
-          Live Grid Status
-        </h3>
-        <div className={`flex items-center gap-1 text-xs ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
-          {isConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
-          {isConnected ? 'Live' : 'Offline'}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-slate-700/50 p-2 rounded">
-          <div className="text-slate-400 text-xs">Generation</div>
-          <div className="text-white font-bold text-lg">{formatMW(totalGen)}</div>
-        </div>
-        <div className="bg-slate-700/50 p-2 rounded">
-          <div className="text-slate-400 text-xs">Demand</div>
-          <div className="text-white font-bold text-lg">{formatMW(snapshot.demand?.total_mw)}</div>
-        </div>
-        <div className="bg-slate-700/50 p-2 rounded">
-          <div className="text-slate-400 text-xs">Carbon</div>
-          <div className={`font-bold text-lg ${
-            snapshot.carbon?.index === 'very low' ? 'text-green-400' :
-            snapshot.carbon?.index === 'low' ? 'text-lime-400' :
-            snapshot.carbon?.index === 'moderate' ? 'text-amber-400' :
-            'text-red-400'
-          }`}>
-            {snapshot.carbon?.intensity_gco2_kwh || 0} <span className="text-xs font-normal">g/kWh</span>
-          </div>
-        </div>
-        <div className="bg-slate-700/50 p-2 rounded">
-          <div className="text-slate-400 text-xs">Net Import</div>
-          <div className={`font-bold text-lg ${
-            (snapshot.interconnectors?.net_imports_mw || 0) >= 0 ? 'text-green-400' : 'text-red-400'
-          }`}>
-            {formatMW(snapshot.interconnectors?.net_imports_mw)}
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-1">
-        <div className="text-slate-400 text-xs mb-2">Generation Mix</div>
-        {Object.entries(genByFuel)
-          .sort(([, a], [, b]) => b - a)
-          .slice(0, 6)
-          .map(([fuel, mw]) => {
-            const config = FUEL_CONFIG[fuel] || FUEL_CONFIG.other;
-            const pct = totalGen > 0 ? (mw / totalGen) * 100 : 0;
-            return (
-              <div key={fuel} className="flex items-center gap-2">
-                <config.icon size={12} style={{ color: config.color }} />
-                <span className="text-xs text-slate-300 w-12 capitalize truncate">{config.label}</span>
-                <div className="flex-1 h-2 bg-slate-700 rounded overflow-hidden">
-                  <div
-                    className="h-full transition-all duration-500"
-                    style={{ width: `${pct}%`, backgroundColor: config.color }}
-                  />
-                </div>
-                <span className="text-xs text-slate-400 w-10 text-right">{pct.toFixed(0)}%</span>
-              </div>
-            );
-          })}
-      </div>
-
-      {(snapshot.markets?.ets_price_eur || snapshot.markets?.agile_price_gbp) && (
-        <div className="pt-2 border-t border-slate-700">
-          <div className="text-slate-400 text-xs mb-2">Market Prices</div>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            {snapshot.markets?.agile_price_gbp && (
-              <div>
-                <span className="text-slate-500">Agile:</span>
-                <span className="text-white ml-1">{snapshot.markets.agile_price_gbp.toFixed(1)}p/kWh</span>
-              </div>
-            )}
-            {snapshot.markets?.ets_price_eur && (
-              <div>
-                <span className="text-slate-500">ETS:</span>
-                <span className="text-white ml-1">€{snapshot.markets.ets_price_eur}/t</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const LayerControlsPanel = ({ layers, onToggle }) => {
-  const [expanded, setExpanded] = useState(true);
-
-  const layerConfig = [
-    { key: 'generators', label: 'Generators', icon: Zap, color: 'sky' },
-    { key: 'interconnectors', label: 'Interconnectors', icon: ArrowLeftRight, color: 'cyan' },
-    { key: 'gridNodes', label: 'Grid Nodes', icon: MapPin, color: 'purple' },
-    { key: 'carbonRegions', label: 'Carbon Intensity', icon: Activity, color: 'green' },
-  ];
-
-  return (
-    <div className="bg-slate-800/95 backdrop-blur rounded-lg overflow-hidden shadow-xl">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full p-3 flex items-center justify-between text-white hover:bg-slate-700/50"
-      >
-        <span className="flex items-center gap-2 font-medium">
-          <Layers size={16} className="text-sky-400" />
-          Layers
-        </span>
-        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-      </button>
-
-      {expanded && (
-        <div className="p-3 pt-0 space-y-2">
-          {layerConfig.map(({ key, label, icon: Icon, color }) => (
-            <button
-              key={key}
-              onClick={() => onToggle(key)}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors ${
-                layers[key]
-                  ? `bg-${color}-600 text-white`
-                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-              }`}
-            >
-              <Icon size={14} />
-              <span className="flex-1 text-left">{label}</span>
-              {layers[key] ? <Eye size={14} /> : <EyeOff size={14} />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const SelectionPanel = ({ selection, onClose }) => {
-  if (!selection) return null;
-
-  const isGenerator = selection.fuel_type !== undefined;
-  const isNode = selection.node_type !== undefined;
-  const isInterconnector = selection.country_code !== undefined;
-
-  return (
-    <div className="bg-slate-800/95 backdrop-blur rounded-lg p-4 shadow-xl">
-      <div className="flex items-start justify-between mb-3">
-        <h3 className="font-semibold text-white">{selection.name}</h3>
-        <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">&times;</button>
-      </div>
-
-      <div className="space-y-2 text-sm">
-        {isGenerator && (
-          <>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Type</span>
-              <span className="text-white capitalize">{selection.fuel_type}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Output</span>
-              <span className="text-white">{formatMW(selection.output_mw)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Capacity</span>
-              <span className="text-white">{formatMW(selection.capacity_mw)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Capacity Factor</span>
-              <span className="text-white">
-                {(((selection.output_mw || 0) / (selection.capacity_mw || 1)) * 100).toFixed(1)}%
-              </span>
-            </div>
-          </>
-        )}
-
-        {isNode && (
-          <>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Type</span>
-              <span className="text-white uppercase">{selection.node_type}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Voltage</span>
-              <span className="text-white">{selection.voltage_kv} kV</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Headroom</span>
-              <span className={`font-medium ${
-                selection.headroom_mw > 100 ? 'text-green-400' :
-                selection.headroom_mw > 50 ? 'text-amber-400' : 'text-red-400'
-              }`}>
-                {selection.headroom_mw} MW
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Current Load</span>
-              <span className="text-white">{selection.load_mw} MW</span>
-            </div>
-          </>
-        )}
-
-        {isInterconnector && (
-          <>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Country</span>
-              <span className="text-white">{selection.country_code}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Capacity</span>
-              <span className="text-white">{formatMW(selection.capacity_mw)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Flow</span>
-              <span className={selection.flow_mw >= 0 ? 'text-green-400' : 'text-red-400'}>
-                {formatMW(Math.abs(selection.flow_mw))} {selection.flow_mw >= 0 ? '(Import)' : '(Export)'}
-              </span>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="mt-4 flex gap-2">
-        <button className="flex-1 py-2 px-3 bg-sky-600 hover:bg-sky-500 rounded text-white text-sm">
-          Analyze
-        </button>
-        <button className="flex-1 py-2 px-3 bg-slate-700 hover:bg-slate-600 rounded text-white text-sm">
-          Add to Report
-        </button>
-      </div>
-    </div>
-  );
-};
-
-const FlexOpportunitiesPanel = ({ opportunities }) => {
-  if (!opportunities?.length) return null;
-
-  const actionConfig = {
-    INCREASE_LOAD: { color: 'green', icon: TrendingUp },
-    REDUCE_LOAD: { color: 'red', icon: TrendingDown },
-    OFFER_DSR: { color: 'purple', icon: Activity },
-    CHARGE_STORAGE: { color: 'blue', icon: Battery },
-  };
-
-  return (
-    <div className="bg-slate-800/95 backdrop-blur rounded-lg p-4 shadow-xl">
-      <h3 className="font-semibold text-white flex items-center gap-2 mb-3">
-        <Target size={16} className="text-green-400" />
-        Flex Opportunities
-      </h3>
-
-      <div className="space-y-2">
-        {opportunities.slice(0, 3).map((opp, i) => {
-          const config = actionConfig[opp.action] || actionConfig.INCREASE_LOAD;
-          const Icon = config.icon;
-          return (
-            <div key={i} className="p-2 rounded bg-slate-700/50 border border-slate-600">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1 text-white text-sm font-medium">
-                  <Icon size={14} className={`text-${config.color}-400`} />
-                  {opp.action.replace(/_/g, ' ')}
-                </span>
-                <span className="text-xs bg-slate-600 px-1.5 py-0.5 rounded text-slate-300">
-                  {(opp.confidence * 100).toFixed(0)}%
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">{opp.reason}</p>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
-// =============================================================================
-// Main Component
-// =============================================================================
-
-// Default UK GSPs for when API is unavailable
+// Default UK GSPs
 const DEFAULT_GSPS = [
   { id: 'didcot', name: 'Didcot 400kV', coords: { lat: 51.62, lng: -1.27 }, voltage_kv: 400, headroom_mw: 120, load_mw: 850 },
   { id: 'london', name: 'London GSP', coords: { lat: 51.51, lng: -0.13 }, voltage_kv: 400, headroom_mw: 45, load_mw: 2100 },
@@ -584,167 +62,243 @@ const DEFAULT_GENERATORS = [
   { id: 'hornsea', name: 'Hornsea Wind Farm', fuel_type: 'wind', coords: { lat: 53.88, lng: 1.80 }, capacity_mw: 1218, output_mw: 850 },
   { id: 'dogger', name: 'Dogger Bank Wind', fuel_type: 'wind', coords: { lat: 54.75, lng: 2.20 }, capacity_mw: 1200, output_mw: 780 },
   { id: 'dinorwig', name: 'Dinorwig Hydro', fuel_type: 'hydro', coords: { lat: 53.12, lng: -4.11 }, capacity_mw: 1728, output_mw: 0 },
-  { id: 'ccgt_pembroke', name: 'Pembroke CCGT', fuel_type: 'gas', coords: { lat: 51.68, lng: -4.99 }, capacity_mw: 2180, output_mw: 1450 },
-  { id: 'ccgt_carrington', name: 'Carrington CCGT', fuel_type: 'gas', coords: { lat: 53.43, lng: -2.41 }, capacity_mw: 884, output_mw: 620 },
+  { id: 'pembroke', name: 'Pembroke CCGT', fuel_type: 'gas', coords: { lat: 51.68, lng: -4.99 }, capacity_mw: 2180, output_mw: 1450 },
+  { id: 'carrington', name: 'Carrington CCGT', fuel_type: 'gas', coords: { lat: 53.43, lng: -2.41 }, capacity_mw: 884, output_mw: 620 },
 ];
 
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+const formatMW = (mw) => {
+  if (!mw && mw !== 0) return '—';
+  if (Math.abs(mw) >= 1000) return `${(mw / 1000).toFixed(1)} GW`;
+  return `${mw.toFixed(0)} MW`;
+};
+
+const getHeadroomColor = (headroom) => {
+  if (headroom > 100) return '#22c55e';
+  if (headroom > 50) return '#f59e0b';
+  return '#ef4444';
+};
+
+// =============================================================================
+// Main Component
+// =============================================================================
+
 const GridSimulatorMap = () => {
-  const { snapshot, overlay, opportunities, loading, error, lastUpdate, refresh } = useGridData();
-  const [selection, setSelection] = useState(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [layers, setLayers] = useState({
     generators: true,
-    interconnectors: true,
     gridNodes: true,
-    carbonRegions: true,
   });
-
-  // Extract data from overlay, with fallbacks
-  const generators = useMemo(() => {
-    const apiData = overlay?.layers?.generators?.data || [];
-    return apiData.length > 0 ? apiData : DEFAULT_GENERATORS;
-  }, [overlay]);
-
-  const interconnectors = useMemo(() => overlay?.layers?.interconnectors?.data || [], [overlay]);
-
-  const gridNodes = useMemo(() => {
-    const apiData = overlay?.layers?.grid_nodes?.data || [];
-    return apiData.length > 0 ? apiData : DEFAULT_GSPS;
-  }, [overlay]);
-
-  const carbonRegions = useMemo(() => overlay?.layers?.carbon_intensity?.data || [], [overlay]);
 
   const toggleLayer = (key) => {
     setLayers(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   return (
-    <div className="h-screen w-screen bg-slate-900 flex flex-col">
+    <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
       {/* Header */}
-      <header className="bg-slate-800 border-b border-slate-700 px-4 py-3 flex items-center justify-between z-50">
-        <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <Zap className="text-sky-400" />
+      <header style={{
+        background: '#1e293b',
+        borderBottom: '1px solid #334155',
+        padding: '12px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        zIndex: 1000
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h1 style={{ fontSize: '20px', fontWeight: 'bold', color: 'white', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+            <Zap style={{ color: '#38bdf8' }} size={24} />
             GridBridge Simulator
           </h1>
-          <span className="text-slate-400 text-sm hidden md:block">UK Real-Time Grid</span>
+          <span style={{ color: '#94a3b8', fontSize: '14px' }}>UK Real-Time Grid</span>
         </div>
-
-        <div className="flex items-center gap-3">
-          {lastUpdate && (
-            <span className="text-slate-400 text-xs flex items-center gap-1">
-              <Clock size={12} />
-              {lastUpdate.toLocaleTimeString()}
-            </span>
-          )}
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className={`p-2 rounded ${isPlaying ? 'bg-green-600' : 'bg-slate-700'} text-white`}
+            style={{
+              padding: '8px',
+              borderRadius: '4px',
+              background: isPlaying ? '#16a34a' : '#475569',
+              color: 'white',
+              border: 'none',
+              cursor: 'pointer'
+            }}
           >
             {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-          </button>
-
-          <button
-            onClick={refresh}
-            disabled={loading}
-            className="p-2 rounded bg-slate-700 hover:bg-slate-600 text-white"
-          >
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          </button>
-
-          <button className="p-2 rounded bg-slate-700 hover:bg-slate-600 text-white">
-            <Settings size={16} />
           </button>
         </div>
       </header>
 
-      {/* Error banner */}
-      {error && (
-        <div className="bg-red-900/50 border-b border-red-700 px-4 py-2 text-red-300 text-sm flex items-center gap-2">
-          <AlertCircle size={16} />
-          {error}
-        </div>
-      )}
-
-      {/* Main content */}
-      <div className="flex-1 relative" style={{ minHeight: 0 }}>
-        {/* Map */}
+      {/* Map Container */}
+      <div style={{ flex: 1, position: 'relative' }}>
         <MapContainer
           center={UK_CENTER}
           zoom={6}
-          zoomControl={false}
-          style={{ height: '100%', width: '100%', background: '#0f172a' }}
+          style={{ height: '100%', width: '100%' }}
+          scrollWheelZoom={true}
         >
-          <FitBounds />
-
-          {/* Dark tile layer */}
           <TileLayer
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             attribution='&copy; <a href="https://carto.com/">CARTO</a>'
           />
 
-          {/* Carbon intensity regions (background) */}
-          {layers.carbonRegions && carbonRegions.map((region, i) => (
-            <CarbonRegionMarker key={`carbon-${i}`} region={region} />
-          ))}
-
-          {/* Interconnector lines */}
-          {layers.interconnectors && interconnectors.map((ic, i) => (
-            <InterconnectorLine
-              key={`ic-${i}`}
-              interconnector={ic}
-              onClick={setSelection}
-            />
-          ))}
-
-          {/* Grid nodes */}
-          {layers.gridNodes && gridNodes.map((node, i) => (
-            <GridNodeMarker
-              key={`node-${i}`}
-              node={node}
-              onClick={setSelection}
-            />
+          {/* Grid Nodes (GSPs) */}
+          {layers.gridNodes && DEFAULT_GSPS.map((node) => (
+            <CircleMarker
+              key={node.id}
+              center={[node.coords.lat, node.coords.lng]}
+              radius={8}
+              pathOptions={{
+                color: '#fff',
+                fillColor: getHeadroomColor(node.headroom_mw),
+                fillOpacity: 0.9,
+                weight: 2,
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -10]}>
+                <div style={{ fontSize: '12px' }}>
+                  <div style={{ fontWeight: 'bold' }}>{node.name}</div>
+                  <div>Headroom: {node.headroom_mw} MW</div>
+                  <div>Load: {node.load_mw} MW</div>
+                  <div>{node.voltage_kv} kV</div>
+                </div>
+              </Tooltip>
+            </CircleMarker>
           ))}
 
           {/* Generators */}
-          {layers.generators && generators.slice(0, 200).map((gen, i) => (
-            <GeneratorMarker
-              key={`gen-${i}`}
-              generator={gen}
-              onClick={setSelection}
-            />
-          ))}
+          {layers.generators && DEFAULT_GENERATORS.map((gen) => {
+            const config = FUEL_CONFIG[gen.fuel_type] || FUEL_CONFIG.other;
+            const radius = Math.max(6, Math.sqrt(gen.capacity_mw) / 5);
+            return (
+              <CircleMarker
+                key={gen.id}
+                center={[gen.coords.lat, gen.coords.lng]}
+                radius={radius}
+                pathOptions={{
+                  color: config.color,
+                  fillColor: config.color,
+                  fillOpacity: 0.7,
+                  weight: 2,
+                }}
+              >
+                <Tooltip direction="top" offset={[0, -10]}>
+                  <div style={{ fontSize: '12px' }}>
+                    <div style={{ fontWeight: 'bold' }}>{gen.name}</div>
+                    <div>{formatMW(gen.output_mw)} / {formatMW(gen.capacity_mw)}</div>
+                    <div style={{ textTransform: 'capitalize' }}>{gen.fuel_type}</div>
+                  </div>
+                </Tooltip>
+              </CircleMarker>
+            );
+          })}
         </MapContainer>
 
-        {/* Left panel overlay */}
-        <div className="absolute top-4 left-4 z-[1000] w-72 space-y-4">
-          <LiveStatsPanel snapshot={snapshot} isConnected={!error && !loading} />
-          <LayerControlsPanel layers={layers} onToggle={toggleLayer} />
+        {/* Layer Controls Panel */}
+        <div style={{
+          position: 'absolute',
+          top: '16px',
+          left: '16px',
+          zIndex: 1000,
+          background: 'rgba(30, 41, 59, 0.95)',
+          borderRadius: '8px',
+          padding: '16px',
+          width: '200px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)'
+        }}>
+          <h3 style={{ color: 'white', fontSize: '14px', fontWeight: '600', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Layers size={16} style={{ color: '#38bdf8' }} />
+            Layers
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ color: '#e2e8f0', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={layers.gridNodes}
+                onChange={() => toggleLayer('gridNodes')}
+                style={{ accentColor: '#38bdf8' }}
+              />
+              Grid Nodes (GSPs)
+            </label>
+            <label style={{ color: '#e2e8f0', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={layers.generators}
+                onChange={() => toggleLayer('generators')}
+                style={{ accentColor: '#38bdf8' }}
+              />
+              Generators
+            </label>
+          </div>
         </div>
 
-        {/* Right panel overlay */}
-        <div className="absolute top-4 right-4 z-[1000] w-72 space-y-4">
-          {selection ? (
-            <SelectionPanel selection={selection} onClose={() => setSelection(null)} />
-          ) : (
-            <div className="bg-slate-800/95 backdrop-blur rounded-lg p-4 text-center text-slate-500 shadow-xl">
-              <MapPin size={24} className="mx-auto mb-2 opacity-50" />
-              <p className="text-sm">Click on map elements to view details</p>
+        {/* Stats Panel */}
+        <div style={{
+          position: 'absolute',
+          top: '16px',
+          right: '16px',
+          zIndex: 1000,
+          background: 'rgba(30, 41, 59, 0.95)',
+          borderRadius: '8px',
+          padding: '16px',
+          width: '220px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)'
+        }}>
+          <h3 style={{ color: 'white', fontSize: '14px', fontWeight: '600', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Activity size={16} style={{ color: '#38bdf8' }} />
+            Grid Status
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e2e8f0', fontSize: '13px' }}>
+              <span>GSP Nodes:</span>
+              <span style={{ fontWeight: '600' }}>{DEFAULT_GSPS.length}</span>
             </div>
-          )}
-          <FlexOpportunitiesPanel opportunities={opportunities} />
-        </div>
-
-        {/* Loading overlay */}
-        {loading && !overlay && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 z-[2000]">
-            <div className="text-center">
-              <RefreshCw className="animate-spin text-sky-400 mx-auto mb-2" size={32} />
-              <p className="text-slate-300">Loading grid data...</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e2e8f0', fontSize: '13px' }}>
+              <span>Generators:</span>
+              <span style={{ fontWeight: '600' }}>{DEFAULT_GENERATORS.length}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e2e8f0', fontSize: '13px' }}>
+              <span>Total Capacity:</span>
+              <span style={{ fontWeight: '600' }}>{formatMW(DEFAULT_GENERATORS.reduce((sum, g) => sum + g.capacity_mw, 0))}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e2e8f0', fontSize: '13px' }}>
+              <span>Current Output:</span>
+              <span style={{ fontWeight: '600', color: '#22c55e' }}>{formatMW(DEFAULT_GENERATORS.reduce((sum, g) => sum + g.output_mw, 0))}</span>
             </div>
           </div>
-        )}
+        </div>
+
+        {/* Legend */}
+        <div style={{
+          position: 'absolute',
+          bottom: '16px',
+          left: '16px',
+          zIndex: 1000,
+          background: 'rgba(30, 41, 59, 0.95)',
+          borderRadius: '8px',
+          padding: '12px 16px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)'
+        }}>
+          <div style={{ color: '#94a3b8', fontSize: '11px', marginBottom: '8px' }}>HEADROOM</div>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#e2e8f0', fontSize: '12px' }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22c55e' }}></span>
+              High (&gt;100MW)
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#e2e8f0', fontSize: '12px' }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f59e0b' }}></span>
+              Medium
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#e2e8f0', fontSize: '12px' }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444' }}></span>
+              Low
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
