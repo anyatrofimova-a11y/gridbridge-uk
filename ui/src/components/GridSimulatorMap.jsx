@@ -1,305 +1,260 @@
 /**
- * GridBridge UK - Real Map Grid Simulator
+ * GridBridge UK - Grid Simulator Map
+ * Built on the same pattern as SimpleMap (proven working)
  */
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Tooltip } from 'react-leaflet';
-import {
-  Zap, Wind, Sun, Flame, Atom, Leaf, Battery, Droplet, Factory,
-  Activity, RefreshCw, Layers, Play, Pause, Clock, MapPin, Wifi, WifiOff,
-} from 'lucide-react';
+import React, { useState } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline } from 'react-leaflet';
 
-// =============================================================================
-// Constants
-// =============================================================================
-
-const UK_CENTER = [54.5, -2.5];
-
-const FUEL_CONFIG = {
-  wind: { color: '#10b981', label: 'Wind' },
-  solar: { color: '#fbbf24', label: 'Solar' },
-  gas: { color: '#ef4444', label: 'Gas' },
-  nuclear: { color: '#f59e0b', label: 'Nuclear' },
-  biomass: { color: '#84cc16', label: 'Biomass' },
-  battery: { color: '#8b5cf6', label: 'Battery' },
-  hydro: { color: '#3b82f6', label: 'Hydro' },
-  coal: { color: '#374151', label: 'Coal' },
-  other: { color: '#6b7280', label: 'Other' },
-};
-
-// Default UK GSPs
-const DEFAULT_GSPS = [
-  { id: 'didcot', name: 'Didcot 400kV', coords: { lat: 51.62, lng: -1.27 }, voltage_kv: 400, headroom_mw: 120, load_mw: 850 },
-  { id: 'london', name: 'London GSP', coords: { lat: 51.51, lng: -0.13 }, voltage_kv: 400, headroom_mw: 45, load_mw: 2100 },
-  { id: 'manchester', name: 'Manchester GSP', coords: { lat: 53.48, lng: -2.24 }, voltage_kv: 400, headroom_mw: 85, load_mw: 1200 },
-  { id: 'birmingham', name: 'Birmingham GSP', coords: { lat: 52.49, lng: -1.90 }, voltage_kv: 400, headroom_mw: 72, load_mw: 980 },
-  { id: 'edinburgh', name: 'Edinburgh GSP', coords: { lat: 55.95, lng: -3.19 }, voltage_kv: 275, headroom_mw: 95, load_mw: 650 },
-  { id: 'glasgow', name: 'Glasgow GSP', coords: { lat: 55.86, lng: -4.25 }, voltage_kv: 400, headroom_mw: 110, load_mw: 720 },
-  { id: 'cardiff', name: 'Cardiff GSP', coords: { lat: 51.48, lng: -3.18 }, voltage_kv: 275, headroom_mw: 88, load_mw: 420 },
-  { id: 'bristol', name: 'Bristol GSP', coords: { lat: 51.45, lng: -2.58 }, voltage_kv: 275, headroom_mw: 65, load_mw: 580 },
-  { id: 'newcastle', name: 'Newcastle GSP', coords: { lat: 54.98, lng: -1.61 }, voltage_kv: 275, headroom_mw: 92, load_mw: 490 },
-  { id: 'leeds', name: 'Leeds GSP', coords: { lat: 53.80, lng: -1.55 }, voltage_kv: 275, headroom_mw: 78, load_mw: 620 },
-  { id: 'liverpool', name: 'Liverpool GSP', coords: { lat: 53.41, lng: -2.98 }, voltage_kv: 275, headroom_mw: 82, load_mw: 540 },
-  { id: 'sheffield', name: 'Sheffield GSP', coords: { lat: 53.38, lng: -1.47 }, voltage_kv: 275, headroom_mw: 68, load_mw: 480 },
-  { id: 'cambridge', name: 'Cambridge GSP', coords: { lat: 52.21, lng: 0.12 }, voltage_kv: 132, headroom_mw: 105, load_mw: 320 },
-  { id: 'oxford', name: 'Oxford GSP', coords: { lat: 51.75, lng: -1.26 }, voltage_kv: 132, headroom_mw: 98, load_mw: 280 },
-  { id: 'reading', name: 'Reading GSP', coords: { lat: 51.45, lng: -0.97 }, voltage_kv: 275, headroom_mw: 55, load_mw: 410 },
-  { id: 'southampton', name: 'Southampton GSP', coords: { lat: 50.91, lng: -1.40 }, voltage_kv: 275, headroom_mw: 73, load_mw: 380 },
-  { id: 'norwich', name: 'Norwich GSP', coords: { lat: 52.63, lng: 1.30 }, voltage_kv: 132, headroom_mw: 115, load_mw: 260 },
-  { id: 'nottingham', name: 'Nottingham GSP', coords: { lat: 52.95, lng: -1.15 }, voltage_kv: 275, headroom_mw: 62, load_mw: 450 },
-  { id: 'leicester', name: 'Leicester GSP', coords: { lat: 52.64, lng: -1.13 }, voltage_kv: 275, headroom_mw: 58, load_mw: 390 },
-  { id: 'aberdeen', name: 'Aberdeen GSP', coords: { lat: 57.15, lng: -2.09 }, voltage_kv: 275, headroom_mw: 125, load_mw: 280 },
-  { id: 'inverness', name: 'Inverness GSP', coords: { lat: 57.48, lng: -4.22 }, voltage_kv: 132, headroom_mw: 140, load_mw: 180 },
-  { id: 'dundee', name: 'Dundee GSP', coords: { lat: 56.46, lng: -2.97 }, voltage_kv: 132, headroom_mw: 95, load_mw: 220 },
-  { id: 'swansea', name: 'Swansea GSP', coords: { lat: 51.62, lng: -3.94 }, voltage_kv: 275, headroom_mw: 85, load_mw: 290 },
-  { id: 'plymouth', name: 'Plymouth GSP', coords: { lat: 50.38, lng: -4.14 }, voltage_kv: 132, headroom_mw: 92, load_mw: 240 },
-  { id: 'exeter', name: 'Exeter GSP', coords: { lat: 50.72, lng: -3.53 }, voltage_kv: 132, headroom_mw: 102, load_mw: 210 },
+// UK GSPs with coordinates
+const GSPS = [
+  { id: 'didcot', name: 'Didcot 400kV', lat: 51.62, lng: -1.27, kv: 400, headroom: 120, load: 850 },
+  { id: 'london', name: 'London GSP', lat: 51.51, lng: -0.13, kv: 400, headroom: 45, load: 2100 },
+  { id: 'manchester', name: 'Manchester GSP', lat: 53.48, lng: -2.24, kv: 400, headroom: 85, load: 1200 },
+  { id: 'birmingham', name: 'Birmingham GSP', lat: 52.49, lng: -1.90, kv: 400, headroom: 72, load: 980 },
+  { id: 'edinburgh', name: 'Edinburgh GSP', lat: 55.95, lng: -3.19, kv: 275, headroom: 95, load: 650 },
+  { id: 'glasgow', name: 'Glasgow GSP', lat: 55.86, lng: -4.25, kv: 400, headroom: 110, load: 720 },
+  { id: 'cardiff', name: 'Cardiff GSP', lat: 51.48, lng: -3.18, kv: 275, headroom: 88, load: 420 },
+  { id: 'bristol', name: 'Bristol GSP', lat: 51.45, lng: -2.58, kv: 275, headroom: 65, load: 580 },
+  { id: 'newcastle', name: 'Newcastle GSP', lat: 54.98, lng: -1.61, kv: 275, headroom: 92, load: 490 },
+  { id: 'leeds', name: 'Leeds GSP', lat: 53.80, lng: -1.55, kv: 275, headroom: 78, load: 620 },
+  { id: 'liverpool', name: 'Liverpool GSP', lat: 53.41, lng: -2.98, kv: 275, headroom: 82, load: 540 },
+  { id: 'sheffield', name: 'Sheffield GSP', lat: 53.38, lng: -1.47, kv: 275, headroom: 68, load: 480 },
+  { id: 'cambridge', name: 'Cambridge GSP', lat: 52.21, lng: 0.12, kv: 132, headroom: 105, load: 320 },
+  { id: 'oxford', name: 'Oxford GSP', lat: 51.75, lng: -1.26, kv: 132, headroom: 98, load: 280 },
+  { id: 'reading', name: 'Reading GSP', lat: 51.45, lng: -0.97, kv: 275, headroom: 55, load: 410 },
+  { id: 'southampton', name: 'Southampton GSP', lat: 50.91, lng: -1.40, kv: 275, headroom: 73, load: 380 },
+  { id: 'norwich', name: 'Norwich GSP', lat: 52.63, lng: 1.30, kv: 132, headroom: 115, load: 260 },
+  { id: 'nottingham', name: 'Nottingham GSP', lat: 52.95, lng: -1.15, kv: 275, headroom: 62, load: 450 },
+  { id: 'leicester', name: 'Leicester GSP', lat: 52.64, lng: -1.13, kv: 275, headroom: 58, load: 390 },
+  { id: 'aberdeen', name: 'Aberdeen GSP', lat: 57.15, lng: -2.09, kv: 275, headroom: 125, load: 280 },
+  { id: 'inverness', name: 'Inverness GSP', lat: 57.48, lng: -4.22, kv: 132, headroom: 140, load: 180 },
+  { id: 'dundee', name: 'Dundee GSP', lat: 56.46, lng: -2.97, kv: 132, headroom: 95, load: 220 },
+  { id: 'swansea', name: 'Swansea GSP', lat: 51.62, lng: -3.94, kv: 275, headroom: 85, load: 290 },
+  { id: 'plymouth', name: 'Plymouth GSP', lat: 50.38, lng: -4.14, kv: 132, headroom: 92, load: 240 },
+  { id: 'exeter', name: 'Exeter GSP', lat: 50.72, lng: -3.53, kv: 132, headroom: 102, load: 210 },
 ];
 
-const DEFAULT_GENERATORS = [
-  { id: 'drax', name: 'Drax Power Station', fuel_type: 'biomass', coords: { lat: 53.74, lng: -0.99 }, capacity_mw: 2595, output_mw: 1800 },
-  { id: 'sizewell', name: 'Sizewell B', fuel_type: 'nuclear', coords: { lat: 52.21, lng: 1.62 }, capacity_mw: 1198, output_mw: 1150 },
-  { id: 'hinkley', name: 'Hinkley Point B', fuel_type: 'nuclear', coords: { lat: 51.21, lng: -3.13 }, capacity_mw: 965, output_mw: 920 },
-  { id: 'hornsea', name: 'Hornsea Wind Farm', fuel_type: 'wind', coords: { lat: 53.88, lng: 1.80 }, capacity_mw: 1218, output_mw: 850 },
-  { id: 'dogger', name: 'Dogger Bank Wind', fuel_type: 'wind', coords: { lat: 54.75, lng: 2.20 }, capacity_mw: 1200, output_mw: 780 },
-  { id: 'dinorwig', name: 'Dinorwig Hydro', fuel_type: 'hydro', coords: { lat: 53.12, lng: -4.11 }, capacity_mw: 1728, output_mw: 0 },
-  { id: 'pembroke', name: 'Pembroke CCGT', fuel_type: 'gas', coords: { lat: 51.68, lng: -4.99 }, capacity_mw: 2180, output_mw: 1450 },
-  { id: 'carrington', name: 'Carrington CCGT', fuel_type: 'gas', coords: { lat: 53.43, lng: -2.41 }, capacity_mw: 884, output_mw: 620 },
+// UK generators
+const GENERATORS = [
+  { id: 'drax', name: 'Drax Power Station', fuel: 'biomass', lat: 53.74, lng: -0.99, cap: 2595, out: 1800, color: '#84cc16' },
+  { id: 'sizewell', name: 'Sizewell B', fuel: 'nuclear', lat: 52.21, lng: 1.62, cap: 1198, out: 1150, color: '#f59e0b' },
+  { id: 'hinkley', name: 'Hinkley Point B', fuel: 'nuclear', lat: 51.21, lng: -3.13, cap: 965, out: 920, color: '#f59e0b' },
+  { id: 'hornsea', name: 'Hornsea Wind Farm', fuel: 'wind', lat: 53.88, lng: 1.80, cap: 1218, out: 850, color: '#10b981' },
+  { id: 'dogger', name: 'Dogger Bank Wind', fuel: 'wind', lat: 54.75, lng: 2.20, cap: 1200, out: 780, color: '#10b981' },
+  { id: 'dinorwig', name: 'Dinorwig Hydro', fuel: 'hydro', lat: 53.12, lng: -4.11, cap: 1728, out: 0, color: '#3b82f6' },
+  { id: 'pembroke', name: 'Pembroke CCGT', fuel: 'gas', lat: 51.68, lng: -4.99, cap: 2180, out: 1450, color: '#ef4444' },
+  { id: 'carrington', name: 'Carrington CCGT', fuel: 'gas', lat: 53.43, lng: -2.41, cap: 884, out: 620, color: '#ef4444' },
+  { id: 'walney', name: 'Walney Wind Farm', fuel: 'wind', lat: 54.04, lng: -3.55, cap: 659, out: 420, color: '#10b981' },
+  { id: 'london_array', name: 'London Array', fuel: 'wind', lat: 51.63, lng: 1.35, cap: 630, out: 380, color: '#10b981' },
+  { id: 'torness', name: 'Torness Nuclear', fuel: 'nuclear', lat: 55.97, lng: -2.40, cap: 1185, out: 1100, color: '#f59e0b' },
+  { id: 'hunterston', name: 'Hunterston B', fuel: 'nuclear', lat: 55.72, lng: -4.90, cap: 965, out: 890, color: '#f59e0b' },
+  { id: 'cottam', name: 'Cottam CCGT', fuel: 'gas', lat: 53.30, lng: -0.78, cap: 440, out: 310, color: '#ef4444' },
+  { id: 'damhead', name: 'Damhead Creek', fuel: 'gas', lat: 51.43, lng: 0.58, cap: 805, out: 550, color: '#ef4444' },
+  { id: 'whitelee', name: 'Whitelee Wind', fuel: 'wind', lat: 55.68, lng: -4.27, cap: 539, out: 340, color: '#10b981' },
 ];
 
-// =============================================================================
-// Utility Functions
-// =============================================================================
+// Interconnectors
+const INTERCONNECTORS = [
+  { name: 'IFA (France)', from: [50.92, 1.14], to: [49.5, 1.5], flow: 1000, color: '#06b6d4' },
+  { name: 'BritNed (Netherlands)', from: [51.45, 1.35], to: [52.0, 4.0], flow: 600, color: '#06b6d4' },
+  { name: 'Moyle (Ireland)', from: [55.20, -5.80], to: [55.10, -6.10], flow: 250, color: '#06b6d4' },
+  { name: 'EWIC (Ireland)', from: [53.30, -4.60], to: [53.30, -6.10], flow: 350, color: '#06b6d4' },
+  { name: 'NSL (Norway)', from: [55.10, 1.10], to: [58.0, 5.0], flow: 700, color: '#06b6d4' },
+];
 
-const formatMW = (mw) => {
-  if (!mw && mw !== 0) return '—';
-  if (Math.abs(mw) >= 1000) return `${(mw / 1000).toFixed(1)} GW`;
-  return `${mw.toFixed(0)} MW`;
-};
-
-const getHeadroomColor = (headroom) => {
-  if (headroom > 100) return '#22c55e';
-  if (headroom > 50) return '#f59e0b';
+function headroomColor(h) {
+  if (h > 100) return '#22c55e';
+  if (h > 50) return '#f59e0b';
   return '#ef4444';
-};
+}
 
-// =============================================================================
-// Main Component
-// =============================================================================
+function fmtMW(mw) {
+  if (mw >= 1000) return (mw / 1000).toFixed(1) + ' GW';
+  return mw + ' MW';
+}
 
 const GridSimulatorMap = () => {
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [layers, setLayers] = useState({
-    generators: true,
-    gridNodes: true,
-  });
+  const [selected, setSelected] = useState(null);
+  const [showGSP, setShowGSP] = useState(true);
+  const [showGen, setShowGen] = useState(true);
+  const [showIC, setShowIC] = useState(true);
 
-  const toggleLayer = (key) => {
-    setLayers(prev => ({ ...prev, [key]: !prev[key] }));
-  };
+  const totalCap = GENERATORS.reduce((s, g) => s + g.cap, 0);
+  const totalOut = GENERATORS.reduce((s, g) => s + g.out, 0);
 
   return (
-    <div style={{ height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
-      {/* Header */}
-      <header style={{
-        background: '#1e293b',
-        borderBottom: '1px solid #334155',
-        padding: '12px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        zIndex: 1000
+    <div style={{ height: '100vh', width: '100vw', background: '#0f172a' }}>
+      <MapContainer
+        center={[54.5, -2.5]}
+        zoom={6}
+        style={{ height: '100%', width: '100%' }}
+        scrollWheelZoom={true}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        {/* Interconnectors */}
+        {showIC && INTERCONNECTORS.map((ic, i) => (
+          <Polyline
+            key={'ic-' + i}
+            positions={[ic.from, ic.to]}
+            pathOptions={{ color: ic.color, weight: 3, dashArray: '8 4', opacity: 0.7 }}
+          >
+            <Popup>
+              <b>{ic.name}</b><br />
+              Flow: {fmtMW(ic.flow)}
+            </Popup>
+          </Polyline>
+        ))}
+
+        {/* GSP Nodes */}
+        {showGSP && GSPS.map((gsp) => (
+          <CircleMarker
+            key={gsp.id}
+            center={[gsp.lat, gsp.lng]}
+            radius={8}
+            pathOptions={{
+              color: '#ffffff',
+              fillColor: headroomColor(gsp.headroom),
+              fillOpacity: 0.9,
+              weight: 2,
+            }}
+            eventHandlers={{ click: () => setSelected(gsp) }}
+          >
+            <Popup>
+              <b>{gsp.name}</b><br />
+              Voltage: {gsp.kv} kV<br />
+              Headroom: {gsp.headroom} MW<br />
+              Load: {gsp.load} MW
+            </Popup>
+          </CircleMarker>
+        ))}
+
+        {/* Generators */}
+        {showGen && GENERATORS.map((gen) => (
+          <CircleMarker
+            key={gen.id}
+            center={[gen.lat, gen.lng]}
+            radius={Math.max(6, Math.sqrt(gen.cap) / 5)}
+            pathOptions={{
+              color: gen.color,
+              fillColor: gen.color,
+              fillOpacity: 0.7,
+              weight: 2,
+            }}
+            eventHandlers={{ click: () => setSelected(gen) }}
+          >
+            <Popup>
+              <b>{gen.name}</b><br />
+              Fuel: {gen.fuel}<br />
+              Output: {fmtMW(gen.out)} / {fmtMW(gen.cap)}
+            </Popup>
+          </CircleMarker>
+        ))}
+      </MapContainer>
+
+      {/* Overlay: Header */}
+      <div style={{
+        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000,
+        background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(8px)',
+        padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        borderBottom: '1px solid rgba(255,255,255,0.1)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <h1 style={{ fontSize: '20px', fontWeight: 'bold', color: 'white', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-            <Zap style={{ color: '#38bdf8' }} size={24} />
-            GridBridge Simulator
-          </h1>
-          <span style={{ color: '#94a3b8', fontSize: '14px' }}>UK Real-Time Grid</span>
+          <span style={{ fontSize: '20px', fontWeight: 'bold', color: '#38bdf8' }}>⚡</span>
+          <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'white' }}>GridBridge Simulator</span>
+          <span style={{ fontSize: '13px', color: '#94a3b8' }}>UK Real-Time Grid</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            style={{
-              padding: '8px',
-              borderRadius: '4px',
-              background: isPlaying ? '#16a34a' : '#475569',
-              color: 'white',
-              border: 'none',
-              cursor: 'pointer'
-            }}
-          >
-            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-          </button>
-        </div>
-      </header>
-
-      {/* Map Container */}
-      <div style={{ flex: 1, position: 'relative' }}>
-        <MapContainer
-          center={UK_CENTER}
-          zoom={6}
-          style={{ height: '100%', width: '100%' }}
-          scrollWheelZoom={true}
-        >
-          <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-          />
-
-          {/* Grid Nodes (GSPs) */}
-          {layers.gridNodes && DEFAULT_GSPS.map((node) => (
-            <CircleMarker
-              key={node.id}
-              center={[node.coords.lat, node.coords.lng]}
-              radius={8}
-              pathOptions={{
-                color: '#fff',
-                fillColor: getHeadroomColor(node.headroom_mw),
-                fillOpacity: 0.9,
-                weight: 2,
-              }}
-            >
-              <Tooltip direction="top" offset={[0, -10]}>
-                <div style={{ fontSize: '12px' }}>
-                  <div style={{ fontWeight: 'bold' }}>{node.name}</div>
-                  <div>Headroom: {node.headroom_mw} MW</div>
-                  <div>Load: {node.load_mw} MW</div>
-                  <div>{node.voltage_kv} kV</div>
-                </div>
-              </Tooltip>
-            </CircleMarker>
-          ))}
-
-          {/* Generators */}
-          {layers.generators && DEFAULT_GENERATORS.map((gen) => {
-            const config = FUEL_CONFIG[gen.fuel_type] || FUEL_CONFIG.other;
-            const radius = Math.max(6, Math.sqrt(gen.capacity_mw) / 5);
-            return (
-              <CircleMarker
-                key={gen.id}
-                center={[gen.coords.lat, gen.coords.lng]}
-                radius={radius}
-                pathOptions={{
-                  color: config.color,
-                  fillColor: config.color,
-                  fillOpacity: 0.7,
-                  weight: 2,
-                }}
-              >
-                <Tooltip direction="top" offset={[0, -10]}>
-                  <div style={{ fontSize: '12px' }}>
-                    <div style={{ fontWeight: 'bold' }}>{gen.name}</div>
-                    <div>{formatMW(gen.output_mw)} / {formatMW(gen.capacity_mw)}</div>
-                    <div style={{ textTransform: 'capitalize' }}>{gen.fuel_type}</div>
-                  </div>
-                </Tooltip>
-              </CircleMarker>
-            );
-          })}
-        </MapContainer>
-
-        {/* Layer Controls Panel */}
-        <div style={{
-          position: 'absolute',
-          top: '16px',
-          left: '16px',
-          zIndex: 1000,
-          background: 'rgba(30, 41, 59, 0.95)',
-          borderRadius: '8px',
-          padding: '16px',
-          width: '200px',
-          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)'
-        }}>
-          <h3 style={{ color: 'white', fontSize: '14px', fontWeight: '600', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Layers size={16} style={{ color: '#38bdf8' }} />
-            Layers
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ color: '#e2e8f0', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={layers.gridNodes}
-                onChange={() => toggleLayer('gridNodes')}
-                style={{ accentColor: '#38bdf8' }}
-              />
-              Grid Nodes (GSPs)
-            </label>
-            <label style={{ color: '#e2e8f0', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={layers.generators}
-                onChange={() => toggleLayer('generators')}
-                style={{ accentColor: '#38bdf8' }}
-              />
-              Generators
-            </label>
-          </div>
-        </div>
-
-        {/* Stats Panel */}
-        <div style={{
-          position: 'absolute',
-          top: '16px',
-          right: '16px',
-          zIndex: 1000,
-          background: 'rgba(30, 41, 59, 0.95)',
-          borderRadius: '8px',
-          padding: '16px',
-          width: '220px',
-          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)'
-        }}>
-          <h3 style={{ color: 'white', fontSize: '14px', fontWeight: '600', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Activity size={16} style={{ color: '#38bdf8' }} />
-            Grid Status
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e2e8f0', fontSize: '13px' }}>
-              <span>GSP Nodes:</span>
-              <span style={{ fontWeight: '600' }}>{DEFAULT_GSPS.length}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e2e8f0', fontSize: '13px' }}>
-              <span>Generators:</span>
-              <span style={{ fontWeight: '600' }}>{DEFAULT_GENERATORS.length}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e2e8f0', fontSize: '13px' }}>
-              <span>Total Capacity:</span>
-              <span style={{ fontWeight: '600' }}>{formatMW(DEFAULT_GENERATORS.reduce((sum, g) => sum + g.capacity_mw, 0))}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#e2e8f0', fontSize: '13px' }}>
-              <span>Current Output:</span>
-              <span style={{ fontWeight: '600', color: '#22c55e' }}>{formatMW(DEFAULT_GENERATORS.reduce((sum, g) => sum + g.output_mw, 0))}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Legend */}
-        <div style={{
-          position: 'absolute',
-          bottom: '16px',
-          left: '16px',
-          zIndex: 1000,
-          background: 'rgba(30, 41, 59, 0.95)',
-          borderRadius: '8px',
-          padding: '12px 16px',
-          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)'
-        }}>
-          <div style={{ color: '#94a3b8', fontSize: '11px', marginBottom: '8px' }}>HEADROOM</div>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#e2e8f0', fontSize: '12px' }}>
-              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22c55e' }}></span>
-              High (&gt;100MW)
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#e2e8f0', fontSize: '12px' }}>
-              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f59e0b' }}></span>
-              Medium
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#e2e8f0', fontSize: '12px' }}>
-              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444' }}></span>
-              Low
-            </span>
-          </div>
+        <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: '#e2e8f0' }}>
+          <span>Capacity: <b style={{ color: '#38bdf8' }}>{fmtMW(totalCap)}</b></span>
+          <span>Output: <b style={{ color: '#22c55e' }}>{fmtMW(totalOut)}</b></span>
+          <span>GSPs: <b>{GSPS.length}</b></span>
+          <span>Generators: <b>{GENERATORS.length}</b></span>
         </div>
       </div>
+
+      {/* Overlay: Layer Controls */}
+      <div style={{
+        position: 'fixed', top: 60, left: 16, zIndex: 1000,
+        background: 'rgba(15, 23, 42, 0.92)', backdropFilter: 'blur(8px)',
+        borderRadius: '8px', padding: '14px', width: '180px',
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}>
+        <div style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 600, marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Layers</div>
+        {[
+          { label: 'Grid Nodes', checked: showGSP, set: setShowGSP, dot: '#22c55e' },
+          { label: 'Generators', checked: showGen, set: setShowGen, dot: '#ef4444' },
+          { label: 'Interconnectors', checked: showIC, set: setShowIC, dot: '#06b6d4' },
+        ].map((l) => (
+          <label key={l.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e2e8f0', fontSize: '13px', cursor: 'pointer', marginBottom: '6px' }}>
+            <input type="checkbox" checked={l.checked} onChange={() => l.set(!l.checked)} style={{ accentColor: '#38bdf8' }} />
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: l.dot, display: 'inline-block' }}></span>
+            {l.label}
+          </label>
+        ))}
+      </div>
+
+      {/* Overlay: Legend */}
+      <div style={{
+        position: 'fixed', bottom: 16, left: 16, zIndex: 1000,
+        background: 'rgba(15, 23, 42, 0.92)', backdropFilter: 'blur(8px)',
+        borderRadius: '8px', padding: '10px 14px',
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}>
+        <div style={{ color: '#94a3b8', fontSize: '10px', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Headroom</div>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          {[
+            { label: 'High (>100MW)', color: '#22c55e' },
+            { label: 'Medium', color: '#f59e0b' },
+            { label: 'Low (<50MW)', color: '#ef4444' },
+          ].map((l) => (
+            <span key={l.label} style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#e2e8f0', fontSize: '11px' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: l.color, display: 'inline-block' }}></span>
+              {l.label}
+            </span>
+          ))}
+        </div>
+        <div style={{ color: '#94a3b8', fontSize: '10px', marginTop: '8px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Generators</div>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {[
+            { label: 'Wind', color: '#10b981' },
+            { label: 'Nuclear', color: '#f59e0b' },
+            { label: 'Gas', color: '#ef4444' },
+            { label: 'Hydro', color: '#3b82f6' },
+            { label: 'Biomass', color: '#84cc16' },
+          ].map((l) => (
+            <span key={l.label} style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#e2e8f0', fontSize: '11px' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: l.color, display: 'inline-block' }}></span>
+              {l.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Overlay: Selection Detail */}
+      {selected && (
+        <div style={{
+          position: 'fixed', top: 60, right: 16, zIndex: 1000,
+          background: 'rgba(15, 23, 42, 0.92)', backdropFilter: 'blur(8px)',
+          borderRadius: '8px', padding: '14px', width: '220px',
+          border: '1px solid rgba(255,255,255,0.1)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ color: 'white', fontWeight: 'bold', fontSize: '14px' }}>{selected.name}</span>
+            <button onClick={() => setSelected(null)} style={{ color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>✕</button>
+          </div>
+          <div style={{ color: '#e2e8f0', fontSize: '12px', lineHeight: '1.8' }}>
+            {selected.kv && <div>Voltage: <b>{selected.kv} kV</b></div>}
+            {selected.headroom !== undefined && <div>Headroom: <b style={{ color: headroomColor(selected.headroom) }}>{selected.headroom} MW</b></div>}
+            {selected.load && <div>Load: <b>{selected.load} MW</b></div>}
+            {selected.fuel && <div>Fuel: <b style={{ textTransform: 'capitalize' }}>{selected.fuel}</b></div>}
+            {selected.cap && <div>Capacity: <b>{fmtMW(selected.cap)}</b></div>}
+            {selected.out !== undefined && <div>Output: <b style={{ color: '#22c55e' }}>{fmtMW(selected.out)}</b></div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

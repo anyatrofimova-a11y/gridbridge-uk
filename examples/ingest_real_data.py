@@ -14,12 +14,12 @@ Usage:
 """
 
 import argparse
-import json
 import hashlib
+import json
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-import time
 
 import numpy as np
 import pandas as pd
@@ -49,7 +49,9 @@ class APIClient:
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json"})
 
-    def get(self, endpoint: str, params: Optional[dict] = None, retries: int = 3) -> dict:
+    def get(
+        self, endpoint: str, params: Optional[dict] = None, retries: int = 3
+    ) -> dict:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         for attempt in range(retries):
             try:
@@ -61,13 +63,14 @@ class APIClient:
                 print(f"API request failed (attempt {attempt + 1}): {e}")
                 if attempt == retries - 1:
                     raise
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
         return {}
 
 
 # ============================================================================
 # CARBON INTENSITY API - generation mix, demand, carbon intensity
 # ============================================================================
+
 
 def fetch_carbon_intensity_generation(start: datetime, end: datetime) -> pd.DataFrame:
     """
@@ -140,12 +143,14 @@ def fetch_carbon_intensity_demand(start: datetime, end: datetime) -> pd.DataFram
     for item in data["data"]:
         ts = pd.Timestamp(item["from"]).tz_convert("UTC")
         intensity = item.get("intensity", {})
-        records.append({
-            "timestamp": ts,
-            "carbon_intensity_forecast": intensity.get("forecast"),
-            "carbon_intensity_actual": intensity.get("actual"),
-            "carbon_intensity_index": intensity.get("index"),
-        })
+        records.append(
+            {
+                "timestamp": ts,
+                "carbon_intensity_forecast": intensity.get("forecast"),
+                "carbon_intensity_actual": intensity.get("actual"),
+                "carbon_intensity_index": intensity.get("index"),
+            }
+        )
 
     df = pd.DataFrame(records)
     if not df.empty:
@@ -154,7 +159,9 @@ def fetch_carbon_intensity_demand(start: datetime, end: datetime) -> pd.DataFram
     return df
 
 
-def fetch_carbon_intensity_regional(start: datetime, end: datetime, region_id: int = 13) -> pd.DataFrame:
+def fetch_carbon_intensity_regional(
+    start: datetime, end: datetime, region_id: int = 13
+) -> pd.DataFrame:
     """
     Fetch regional generation/demand data.
 
@@ -173,7 +180,9 @@ def fetch_carbon_intensity_regional(start: datetime, end: datetime, region_id: i
     print(f"Fetching regional data for region {region_id}")
 
     try:
-        data = client.get(f"/regional/intensity/{from_str}/{to_str}/regionid/{region_id}")
+        data = client.get(
+            f"/regional/intensity/{from_str}/{to_str}/regionid/{region_id}"
+        )
     except Exception as e:
         print(f"Regional endpoint failed: {e}")
         return pd.DataFrame()
@@ -206,6 +215,7 @@ def fetch_carbon_intensity_regional(start: datetime, end: datetime, region_id: i
 # ELEXON INSIGHTS API - public subset (no key required for some endpoints)
 # ============================================================================
 
+
 def fetch_elexon_generation_by_fuel(settlement_date: str) -> pd.DataFrame:
     """
     Fetch actual generation by fuel type from Elexon Insights API.
@@ -221,10 +231,10 @@ def fetch_elexon_generation_by_fuel(settlement_date: str) -> pd.DataFrame:
 
     try:
         # FUELINST provides 5-minute resolution instantaneous generation by fuel
-        data = client.get("/datasets/FUELINST", params={
-            "settlementDate": settlement_date,
-            "format": "json"
-        })
+        data = client.get(
+            "/datasets/FUELINST",
+            params={"settlementDate": settlement_date, "format": "json"},
+        )
     except Exception as e:
         print(f"Elexon FUELINST failed: {e}")
         return pd.DataFrame()
@@ -245,11 +255,13 @@ def fetch_elexon_generation_by_fuel(settlement_date: str) -> pd.DataFrame:
         ts = pd.Timestamp(sd, tz="Europe/London") + timedelta(minutes=30 * (sp - 1))
         ts = ts.tz_convert("UTC")
 
-        records.append({
-            "timestamp": ts,
-            "fuel_type": item.get("fuelType"),
-            "generation_mw": item.get("generation"),
-        })
+        records.append(
+            {
+                "timestamp": ts,
+                "fuel_type": item.get("fuelType"),
+                "generation_mw": item.get("generation"),
+            }
+        )
 
     df = pd.DataFrame(records)
     if df.empty:
@@ -257,10 +269,7 @@ def fetch_elexon_generation_by_fuel(settlement_date: str) -> pd.DataFrame:
 
     # Pivot to wide format
     df_pivot = df.pivot_table(
-        index="timestamp",
-        columns="fuel_type",
-        values="generation_mw",
-        aggfunc="mean"
+        index="timestamp", columns="fuel_type", values="generation_mw", aggfunc="mean"
     )
 
     return df_pivot
@@ -277,10 +286,10 @@ def fetch_elexon_demand(settlement_date: str) -> pd.DataFrame:
     print(f"Fetching Elexon INDOD for {settlement_date}")
 
     try:
-        data = client.get("/datasets/INDOD", params={
-            "settlementDate": settlement_date,
-            "format": "json"
-        })
+        data = client.get(
+            "/datasets/INDOD",
+            params={"settlementDate": settlement_date, "format": "json"},
+        )
     except Exception as e:
         print(f"Elexon INDOD failed: {e}")
         return pd.DataFrame()
@@ -298,10 +307,12 @@ def fetch_elexon_demand(settlement_date: str) -> pd.DataFrame:
         ts = pd.Timestamp(sd, tz="Europe/London") + timedelta(minutes=30 * (sp - 1))
         ts = ts.tz_convert("UTC")
 
-        records.append({
-            "timestamp": ts,
-            "demand_mw": item.get("demand"),
-        })
+        records.append(
+            {
+                "timestamp": ts,
+                "demand_mw": item.get("demand"),
+            }
+        )
 
     df = pd.DataFrame(records)
     if not df.empty:
@@ -321,10 +332,10 @@ def fetch_elexon_system_prices(settlement_date: str) -> pd.DataFrame:
     print(f"Fetching Elexon system prices for {settlement_date}")
 
     try:
-        data = client.get("/balancing/settlement/system-prices", params={
-            "settlementDate": settlement_date,
-            "format": "json"
-        })
+        data = client.get(
+            "/balancing/settlement/system-prices",
+            params={"settlementDate": settlement_date, "format": "json"},
+        )
     except Exception as e:
         print(f"Elexon system prices failed: {e}")
         return pd.DataFrame()
@@ -342,11 +353,13 @@ def fetch_elexon_system_prices(settlement_date: str) -> pd.DataFrame:
         ts = pd.Timestamp(sd, tz="Europe/London") + timedelta(minutes=30 * (sp - 1))
         ts = ts.tz_convert("UTC")
 
-        records.append({
-            "timestamp": ts,
-            "system_sell_price": item.get("systemSellPrice"),
-            "system_buy_price": item.get("systemBuyPrice"),
-        })
+        records.append(
+            {
+                "timestamp": ts,
+                "system_sell_price": item.get("systemSellPrice"),
+                "system_buy_price": item.get("systemBuyPrice"),
+            }
+        )
 
     df = pd.DataFrame(records)
     if not df.empty:
@@ -358,6 +371,7 @@ def fetch_elexon_system_prices(settlement_date: str) -> pd.DataFrame:
 # ============================================================================
 # DATA CANONICALISATION
 # ============================================================================
+
 
 def canonicalize_to_schema(
     carbon_gen: pd.DataFrame,
@@ -418,7 +432,9 @@ def canonicalize_to_schema(
         # Aggregate imports
         import_cols = [c for c in elexon_gen_renamed.columns if c.startswith("import_")]
         if import_cols:
-            elexon_gen_renamed["imports_mw"] = elexon_gen_renamed[import_cols].sum(axis=1)
+            elexon_gen_renamed["imports_mw"] = elexon_gen_renamed[import_cols].sum(
+                axis=1
+            )
 
         if canonical.empty:
             canonical = elexon_gen_renamed
@@ -429,38 +445,62 @@ def canonicalize_to_schema(
     if not carbon_gen.empty and "wind_mw" not in canonical.columns:
         # Carbon Intensity gives percentages; multiply by demand to get MW estimate
         if "demand_mw" in canonical.columns:
-            for fuel in ["wind", "solar", "gas", "nuclear", "coal", "hydro", "biomass", "imports"]:
+            for fuel in [
+                "wind",
+                "solar",
+                "gas",
+                "nuclear",
+                "coal",
+                "hydro",
+                "biomass",
+                "imports",
+            ]:
                 pct_col = f"{fuel}_pct"
                 if pct_col in carbon_gen.columns:
                     # Join and calculate
                     canonical = canonical.join(carbon_gen[[pct_col]], how="left")
-                    canonical[f"{fuel}_mw_est"] = canonical["demand_mw"] * canonical[pct_col] / 100
+                    canonical[f"{fuel}_mw_est"] = (
+                        canonical["demand_mw"] * canonical[pct_col] / 100
+                    )
                     canonical = canonical.drop(columns=[pct_col], errors="ignore")
 
     # Add carbon intensity
     if not carbon_intensity.empty:
         canonical = canonical.join(
             carbon_intensity[["carbon_intensity_actual", "carbon_intensity_forecast"]],
-            how="left"
+            how="left",
         )
         # Prefer actual, fall back to forecast
-        canonical["carbon_intensity_gco2_kwh"] = canonical["carbon_intensity_actual"].fillna(
-            canonical["carbon_intensity_forecast"]
-        )
+        canonical["carbon_intensity_gco2_kwh"] = canonical[
+            "carbon_intensity_actual"
+        ].fillna(canonical["carbon_intensity_forecast"])
 
     # Add system prices
     if not elexon_prices.empty:
         canonical = canonical.join(elexon_prices, how="left")
         # Average of buy/sell as reference price
-        if "system_buy_price" in canonical.columns and "system_sell_price" in canonical.columns:
+        if (
+            "system_buy_price" in canonical.columns
+            and "system_sell_price" in canonical.columns
+        ):
             canonical["system_price_gbp_mwh"] = (
                 canonical["system_buy_price"] + canonical["system_sell_price"]
             ) / 2
 
     # Clean up and ensure standard columns exist
-    standard_cols = ["demand_mw", "wind_mw", "solar_mw", "gas_mw", "nuclear_mw",
-                     "coal_mw", "hydro_mw", "biomass_mw", "imports_mw",
-                     "carbon_intensity_gco2_kwh", "system_price_gbp_mwh"]
+    standard_cols = [
+        "demand_mw",
+        "wind_mw",
+        "solar_mw",
+        "gas_mw",
+        "nuclear_mw",
+        "coal_mw",
+        "hydro_mw",
+        "biomass_mw",
+        "imports_mw",
+        "carbon_intensity_gco2_kwh",
+        "system_price_gbp_mwh",
+    ]
 
     for col in standard_cols:
         if col not in canonical.columns:
@@ -480,6 +520,7 @@ def canonicalize_to_schema(
 # ============================================================================
 # PYPSA NETWORK CONSTRUCTION
 # ============================================================================
+
 
 def build_gb_minimal_network(canonical_df: pd.DataFrame) -> "pypsa.Network":
     """
@@ -508,7 +549,11 @@ def build_gb_minimal_network(canonical_df: pd.DataFrame) -> "pypsa.Network":
 
     net = pypsa.Network()
     # PyPSA requires timezone-naive timestamps
-    snapshots = canonical_df.index.tz_localize(None) if canonical_df.index.tz else canonical_df.index
+    snapshots = (
+        canonical_df.index.tz_localize(None)
+        if canonical_df.index.tz
+        else canonical_df.index
+    )
     net.set_snapshots(snapshots)
 
     # Define zones
@@ -525,7 +570,7 @@ def build_gb_minimal_network(canonical_df: pd.DataFrame) -> "pypsa.Network":
 
     # Add transmission lines (simplified)
     lines = [
-        ("SCOT", "NORTH", 3300, 0.01),   # Scotland-England boundary ~3.3GW
+        ("SCOT", "NORTH", 3300, 0.01),  # Scotland-England boundary ~3.3GW
         ("NORTH", "MIDL", 10000, 0.005),
         ("MIDL", "SOUTH", 10000, 0.005),
         ("MIDL", "LON", 5000, 0.008),
@@ -563,7 +608,15 @@ def build_gb_minimal_network(canonical_df: pd.DataFrame) -> "pypsa.Network":
     }
 
     # Add generators
-    fuel_types = ["wind", "solar", "gas", "nuclear", "coal", "hydro", "biomass"]
+    _fuel_types = [  # noqa: F841
+        "wind",
+        "solar",
+        "gas",
+        "nuclear",
+        "coal",
+        "hydro",
+        "biomass",
+    ]
 
     for zone, alloc in gen_allocation.items():
         for fuel, share in alloc.items():
@@ -586,7 +639,9 @@ def build_gb_minimal_network(canonical_df: pd.DataFrame) -> "pypsa.Network":
                     )
 
                     # Set time series
-                    net.generators_t.p_max_pu[gen_name] = (p_set / (p_max * 1.1)).clip(0, 1)
+                    net.generators_t.p_max_pu[gen_name] = (p_set / (p_max * 1.1)).clip(
+                        0, 1
+                    )
 
     # Add loads
     if "demand_mw" in canonical_df.columns:
@@ -596,7 +651,14 @@ def build_gb_minimal_network(canonical_df: pd.DataFrame) -> "pypsa.Network":
             net.loads_t.p_set[load_name] = canonical_df["demand_mw"] * share
 
     # Add slack generator (for powerflow feasibility)
-    net.add("Generator", "slack", bus="MIDL", p_nom=50000, marginal_cost=1000, control="Slack")
+    net.add(
+        "Generator",
+        "slack",
+        bus="MIDL",
+        p_nom=50000,
+        marginal_cost=1000,
+        control="Slack",
+    )
 
     return net
 
@@ -620,6 +682,7 @@ def _get_marginal_cost(fuel: str) -> float:
 # AUDIT TRACE
 # ============================================================================
 
+
 def compute_data_hash(df: pd.DataFrame) -> str:
     """Compute deterministic hash of dataframe for audit trail."""
     # Convert to CSV string for hashing (deterministic)
@@ -641,7 +704,9 @@ def write_audit_trace(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     trace = {
-        "run_id": metadata.get("run_id", f"r-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"),
+        "run_id": metadata.get(
+            "run_id", f"r-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+        ),
         "timestamp_utc": datetime.now(timezone.utc).isoformat() + "Z",
         "data_hash": compute_data_hash(canonical_df),
         "row_count": len(canonical_df),
@@ -658,8 +723,16 @@ def write_audit_trace(
                 for col in canonical_df.columns
             },
             "demand_range_mw": [
-                float(canonical_df["demand_mw"].min()) if "demand_mw" in canonical_df.columns else None,
-                float(canonical_df["demand_mw"].max()) if "demand_mw" in canonical_df.columns else None,
+                (
+                    float(canonical_df["demand_mw"].min())
+                    if "demand_mw" in canonical_df.columns
+                    else None
+                ),
+                (
+                    float(canonical_df["demand_mw"].max())
+                    if "demand_mw" in canonical_df.columns
+                    else None
+                ),
             ],
         },
     }
@@ -676,6 +749,7 @@ def write_audit_trace(
 # MAIN
 # ============================================================================
 
+
 def main(args):
     out_dir = Path(args.output).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -689,13 +763,17 @@ def main(args):
     data_sources = {}
 
     # Fetch Carbon Intensity data
-    carbon_gen = fetch_carbon_intensity_generation(start.to_pydatetime(), end.to_pydatetime())
+    carbon_gen = fetch_carbon_intensity_generation(
+        start.to_pydatetime(), end.to_pydatetime()
+    )
     data_sources["carbon_intensity_generation"] = {
         "rows": len(carbon_gen),
         "source": CARBON_INTENSITY_BASE,
     }
 
-    carbon_intensity = fetch_carbon_intensity_demand(start.to_pydatetime(), end.to_pydatetime())
+    carbon_intensity = fetch_carbon_intensity_demand(
+        start.to_pydatetime(), end.to_pydatetime()
+    )
     data_sources["carbon_intensity"] = {
         "rows": len(carbon_intensity),
         "source": CARBON_INTENSITY_BASE,
@@ -724,13 +802,26 @@ def main(args):
 
         current += timedelta(days=1)
 
-    elexon_demand = pd.concat(elexon_demand_list) if elexon_demand_list else pd.DataFrame()
+    elexon_demand = (
+        pd.concat(elexon_demand_list) if elexon_demand_list else pd.DataFrame()
+    )
     elexon_gen = pd.concat(elexon_gen_list) if elexon_gen_list else pd.DataFrame()
-    elexon_prices = pd.concat(elexon_prices_list) if elexon_prices_list else pd.DataFrame()
+    elexon_prices = (
+        pd.concat(elexon_prices_list) if elexon_prices_list else pd.DataFrame()
+    )
 
-    data_sources["elexon_demand"] = {"rows": len(elexon_demand), "source": ELEXON_INSIGHTS_BASE}
-    data_sources["elexon_generation"] = {"rows": len(elexon_gen), "source": ELEXON_INSIGHTS_BASE}
-    data_sources["elexon_prices"] = {"rows": len(elexon_prices), "source": ELEXON_INSIGHTS_BASE}
+    data_sources["elexon_demand"] = {
+        "rows": len(elexon_demand),
+        "source": ELEXON_INSIGHTS_BASE,
+    }
+    data_sources["elexon_generation"] = {
+        "rows": len(elexon_gen),
+        "source": ELEXON_INSIGHTS_BASE,
+    }
+    data_sources["elexon_prices"] = {
+        "rows": len(elexon_prices),
+        "source": ELEXON_INSIGHTS_BASE,
+    }
 
     print("=" * 60)
     print("Data fetch summary:")
@@ -746,15 +837,26 @@ def main(args):
     if canonical.empty:
         print("WARNING: No data fetched. Using synthetic fallback.")
         idx = pd.date_range(start, end - timedelta(minutes=30), freq="30min", tz="UTC")
-        canonical = pd.DataFrame({
-            "demand_mw": 25000 + 5000 * np.sin(np.linspace(0, 4 * np.pi, len(idx))),
-            "wind_mw": 5000 + 3000 * np.sin(np.linspace(0.5, 4.5 * np.pi, len(idx))),
-            "solar_mw": 2000 * np.clip(np.sin(np.linspace(-1, 3 * np.pi, len(idx))), 0, 1),
-            "gas_mw": 10000 + 2000 * np.random.randn(len(idx)),
-            "nuclear_mw": np.full(len(idx), 5500),
-        }, index=idx)
-        for col in ["coal_mw", "hydro_mw", "biomass_mw", "imports_mw",
-                    "carbon_intensity_gco2_kwh", "system_price_gbp_mwh"]:
+        canonical = pd.DataFrame(
+            {
+                "demand_mw": 25000 + 5000 * np.sin(np.linspace(0, 4 * np.pi, len(idx))),
+                "wind_mw": 5000
+                + 3000 * np.sin(np.linspace(0.5, 4.5 * np.pi, len(idx))),
+                "solar_mw": 2000
+                * np.clip(np.sin(np.linspace(-1, 3 * np.pi, len(idx))), 0, 1),
+                "gas_mw": 10000 + 2000 * np.random.randn(len(idx)),
+                "nuclear_mw": np.full(len(idx), 5500),
+            },
+            index=idx,
+        )
+        for col in [
+            "coal_mw",
+            "hydro_mw",
+            "biomass_mw",
+            "imports_mw",
+            "carbon_intensity_gco2_kwh",
+            "system_price_gbp_mwh",
+        ]:
             canonical[col] = np.nan
 
     # Write canonical parquet
@@ -769,10 +871,12 @@ def main(args):
         print("\nBuilding PyPSA network...")
         net = build_gb_minimal_network(canonical)
 
-        print(f"Network: {len(net.buses)} buses, {len(net.generators)} generators, {len(net.lines)} lines")
+        print(
+            f"Network: {len(net.buses)} buses, {len(net.generators)} generators, {len(net.lines)} lines"
+        )
 
         # Run LOPF on subset of snapshots (full day would be slow)
-        snapshots = net.snapshots[:min(48, len(net.snapshots))]  # Max 1 day
+        snapshots = net.snapshots[: min(48, len(net.snapshots))]  # Max 1 day
         print(f"Running LOPF on {len(snapshots)} snapshots...")
 
         try:
@@ -812,7 +916,9 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Ingest real UK grid data and run PyPSA demo")
+    parser = argparse.ArgumentParser(
+        description="Ingest real UK grid data and run PyPSA demo"
+    )
     parser.add_argument("--start", default="2025-01-15", help="Start date YYYY-MM-DD")
     parser.add_argument("--days", type=int, default=1, help="Number of days")
     parser.add_argument("--output", default="out", help="Output directory")

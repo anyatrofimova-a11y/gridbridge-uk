@@ -14,6 +14,10 @@ on:
         default: 'false'
         type: boolean
 
+permissions:
+  contents: read
+  security-events: write
+
 env:
   IMAGE_NAME: gridbridge-uk
   PYTHON_VERSION: '3.11'
@@ -35,13 +39,13 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install linting tools
-        run: pip install flake8 black isort
+        run: pip install 'flake8>=7,<8' 'black>=24,<25' 'isort>=5,<6'
 
       - name: Check formatting with black
         run: black examples/ tests/ --check --diff
 
       - name: Check import sorting
-        run: isort examples/ tests/ --check --diff
+        run: isort examples/ tests/ --check --diff --profile black
 
       - name: Lint with flake8
         run: flake8 examples/ tests/ --max-line-length=100 --ignore=E501,W503
@@ -108,8 +112,8 @@ jobs:
 
       - name: Test image health check
         run: |
-          docker run --rm ${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            python -c "import pandas; import pypsa; import requests; print('Health check OK')"
+          docker run --rm --entrypoint python ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -c "import pandas; import pypsa; import requests; print('Health check OK')"
 
   # ===========================================================================
   # Smoke test (synthetic data, no API calls)
@@ -248,7 +252,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'

@@ -10,7 +10,7 @@ import pytest
 # Add examples to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "examples"))
 
-from ingest_real_data import (
+from ingest_real_data import (  # noqa: E402
     canonicalize_to_schema,
     compute_data_hash,
     fetch_carbon_intensity_generation,
@@ -50,11 +50,13 @@ class TestCanonicalization:
 
     def test_duplicate_timestamps_removed(self):
         """Duplicate timestamps should be deduplicated."""
-        idx = pd.DatetimeIndex([
-            "2025-01-01 00:00:00+00:00",
-            "2025-01-01 00:00:00+00:00",
-            "2025-01-01 00:30:00+00:00",
-        ])
+        idx = pd.DatetimeIndex(
+            [
+                "2025-01-01 00:00:00+00:00",
+                "2025-01-01 00:00:00+00:00",
+                "2025-01-01 00:30:00+00:00",
+            ]
+        )
         demand = pd.DataFrame({"demand_mw": [100, 150, 200]}, index=idx)
 
         result = canonicalize_to_schema(
@@ -105,9 +107,17 @@ class TestSchemaValidation:
         )
 
         expected_cols = [
-            "demand_mw", "wind_mw", "solar_mw", "gas_mw", "nuclear_mw",
-            "coal_mw", "hydro_mw", "biomass_mw", "imports_mw",
-            "carbon_intensity_gco2_kwh", "system_price_gbp_mwh"
+            "demand_mw",
+            "wind_mw",
+            "solar_mw",
+            "gas_mw",
+            "nuclear_mw",
+            "coal_mw",
+            "hydro_mw",
+            "biomass_mw",
+            "imports_mw",
+            "carbon_intensity_gco2_kwh",
+            "system_price_gbp_mwh",
         ]
 
         for col in expected_cols:
@@ -151,11 +161,14 @@ class TestElexonFuelMapping:
     def test_imports_aggregated(self):
         """Import columns should be aggregated."""
         idx = pd.date_range("2025-01-01", periods=2, freq="30min", tz="UTC")
-        elexon_gen = pd.DataFrame({
-            "INTFR": [500, 600],
-            "INTIRL": [200, 300],
-            "INTNED": [100, 100],
-        }, index=idx)
+        elexon_gen = pd.DataFrame(
+            {
+                "INTFR": [500, 600],
+                "INTIRL": [200, 300],
+                "INTNED": [100, 100],
+            },
+            index=idx,
+        )
 
         result = canonicalize_to_schema(
             pd.DataFrame(),
@@ -206,7 +219,7 @@ class TestEdgeCases:
     def test_nan_handling(self):
         """NaN values should be preserved, not dropped."""
         idx = pd.date_range("2025-01-01", periods=3, freq="30min", tz="UTC")
-        demand = pd.DataFrame({"demand_mw": [100, float('nan'), 300]}, index=idx)
+        demand = pd.DataFrame({"demand_mw": [100, float("nan"), 300]}, index=idx)
 
         result = canonicalize_to_schema(
             pd.DataFrame(),
